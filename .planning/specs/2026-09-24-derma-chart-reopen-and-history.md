@@ -21,11 +21,13 @@ Agreed 2026-09-24. Branch `feat/derma-chart-reopen-and-history`.
 
 Re-completing is safe by existing behaviour: `_complete_derma_procedures_for_session` submits drafts only, and `PatientEncounter.on_submit` skips prescription/order rows that already carry a request.
 
-While reopened, a prescription row with a `medication_request` stays read-only, in the panel and in the save endpoint, so no submitted request is orphaned.
+While reopened, a prescription row with a `medication_request` stays read-only, in the panel and in the save endpoint, so no submitted request is orphaned. The server keeps those rows as stored. Today the panel drops `medication_request` on save, and without that guard the next completion would order the drug twice.
 
 ### Reopen procedure
 
 `do_derma.api.reopen_derma_procedure(procedure, reason)`, whitelisted, same pattern: gate, `cancel` permission on Clinical Procedure, required reason, `docstatus = 0`, `status = "In Progress"`, timeline Comment.
+
+- Offered only while the encounter is open (decided 2026-09-24): reopen the encounter, then the procedures that need fixing. Complete Encounter resubmits them with the other drafts, so there is one completion path, and a completed encounter keeps the whole chart read-only.
 
 - Refused when the procedure is billed on a submitted Sales Invoice. The UI disables the action and names the invoice.
 - Resubmission re-runs do_health's `sync_clinical_procedure_billing`. A test must prove it updates the existing Billing Charge rather than adding one.
@@ -52,7 +54,7 @@ Implementation audits every whitelisted write the chart calls and lists each one
 
 - Gate first. Earlier encounters of the patient, excluding `current_encounter` and cancelled ones (`docstatus < 2`), ordered `encounter_date desc, creation desc`.
 - A visit qualifies when it has at least one drawing **or** a filled assessment. Scan in batches until `page_length` qualifying visits are found or encounters run out.
-- Each visit: `encounter`, `encounter_date`, `practitioner_name`, `drawings` (`_load_annotations_for_parents(..., include_scene=False)`), `assessment` (`mode` and filled `[{label, value}]` from `assessment.read_assessment`).
+- Each visit: `encounter`, `encounter_date`, `practitioner_name`, `drawings` (the encounter's and its procedures', via `_load_annotations_for_parents(..., include_scene=False)`), `assessment` (`mode` and filled `[{label, value}]` from `assessment.read_assessment`).
 - Returns `{visits, has_more, next_start}`. `next_start` is the encounter offset to resume scanning from, since skipped encounters make visit counts differ from offsets.
 
 `components/assessment/PreviousVisitsPanel.vue`, placed after the Drawings section:
