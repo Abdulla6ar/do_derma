@@ -213,6 +213,14 @@
                   </div>
                   <p v-else class="panel-muted">{{ __("Saved encounter drawings will appear here.") }}</p>
                 </section>
+                <PreviousVisitsPanel
+                  :patient="patient.name || ''"
+                  :current-encounter="encounter.name || ''"
+                  :preview-of="annotationPreview"
+                  :label-of="annotationTemplateLabel"
+                  :format-date="formatDate"
+                  @open-drawing="openAnnotationHistory"
+                />
               </section>
             </div>
           </template>
@@ -591,6 +599,7 @@ import { computed, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import VoiceScribe from "./components/assessment/VoiceScribe.vue"
+import PreviousVisitsPanel from "./components/assessment/PreviousVisitsPanel.vue"
 import AiDocumentsCard from "./components/review/AiDocumentsCard.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
