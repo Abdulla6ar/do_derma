@@ -554,6 +554,11 @@
   overflow: hidden;
 }
 
+.previous-visit-assessment.is-expanded dd {
+  display: block;
+  overflow: visible;
+}
+
 .chart-annotation-preview {
   grid-row: 1 / span 2;
   width: 58px;

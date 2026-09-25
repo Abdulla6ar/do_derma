@@ -4655,7 +4655,11 @@ def get_patient_timeline(patient: str, current_encounter: str | None = None, lim
 def _load_visit_drawings(encounter: str) -> list[dict[str, Any]]:
 	"""An encounter's drawings and its procedures', without the scene JSON."""
 	field = _get_clinical_procedure_encounter_field()
-	procedures = frappe.get_all("Clinical Procedure", filters={field: encounter}, pluck="name") if field else []
+	procedures = (
+		frappe.get_all("Clinical Procedure", filters={field: encounter, "docstatus": ["<", 2]}, pluck="name")
+		if field
+		else []
+	)
 	parents = [("Patient Encounter", encounter), *(("Clinical Procedure", name) for name in procedures)]
 	return _load_annotations_for_parents(parents, include_scene=False)
 

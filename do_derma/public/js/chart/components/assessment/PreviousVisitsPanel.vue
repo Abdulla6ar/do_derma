@@ -1,5 +1,5 @@
 <template>
-  <section v-if="visits.length || error" class="chart-annotation-history previous-visits" data-test="previous-visits">
+  <section v-if="visits.length || hasMore || error" class="chart-annotation-history previous-visits" data-test="previous-visits">
     <header>
       <div>
         <strong>{{ __("Previous Visits") }}</strong>
@@ -28,8 +28,12 @@
           </button>
         </div>
       </div>
-      <dl v-if="visit.assessment.length" class="previous-visit-assessment">
-        <template v-for="field in shownFields(visit)" :key="field.label">
+      <dl
+        v-if="visit.assessment.length"
+        class="previous-visit-assessment"
+        :class="{ 'is-expanded': expanded.has(visit.encounter) }"
+      >
+        <template v-for="(field, index) in shownFields(visit)" :key="`${field.label}-${index}`">
           <dt>{{ field.label }}</dt>
           <dd>{{ field.value }}</dd>
         </template>
@@ -44,6 +48,9 @@
         {{ expanded.has(visit.encounter) ? __("Show less") : __("Show all") }}
       </button>
     </article>
+    <p v-if="!visits.length && hasMore && !error" class="panel-muted">
+      {{ __("None in the most recent visits.") }}
+    </p>
     <p v-if="error" class="panel-muted" role="alert">
       {{ error }}
       <button type="button" class="ghost small" @click="loadPage">{{ __("Retry") }}</button>
