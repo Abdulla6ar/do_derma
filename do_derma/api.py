@@ -3247,9 +3247,12 @@ def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=No
 	before = assessment.serialize_values(encounter_doc, layout)
 	assessment.apply_assessment(encounter_doc, values, mode=mode)
 	# apply_assessment already drops any field it cannot write on a submitted encounter, so the
-	# doc state never shows a blocked attempt. Diff the raw request instead of the saved fields.
+	# doc state never shows a blocked attempt. Diff the raw request instead of the saved fields,
+	# in the same comparable form as `before` - a native Date and its JSON string twin must match.
 	attempted = {fieldname: value for fieldname, value in values.items() if fieldname in before}
-	_ensure_changes_allowed_on_submit(encounter_doc, before, attempted)
+	_ensure_changes_allowed_on_submit(
+		encounter_doc, assessment.normalized_values(before, layout), assessment.normalized_values(attempted, layout)
+	)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
 	return get_derma_assessment(encounter=encounter_doc.name)

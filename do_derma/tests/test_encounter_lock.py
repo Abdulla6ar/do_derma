@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
+from frappe.utils import cstr
 
 import do_derma.api as api
 from do_derma import assessment
@@ -151,3 +153,52 @@ class TestEditsAfterSubmit(DermaTestHelpers, IntegrationTestCase):
 		procedure.submit()
 		with self.assertRaises(frappe.ValidationError):
 			api.update_clinical_procedure_fields(procedure.name, json.dumps({"start_date": "2020-01-01"}))
+
+	def _date_layout(self):
+		"""A locked Date field, independent of this site's own assessment field configuration."""
+		return [{"fieldname": "encounter_date", "fieldtype": "Date", "is_value_field": True, "allow_on_submit": 0}]
+
+	def test_an_unchanged_locked_date_field_saves(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		with patch.object(assessment, "get_layout", return_value=self._date_layout()):
+			api.set_derma_assessment(
+				payload=json.dumps({"encounter_date": cstr(encounter.encounter_date)}),
+				mode="Structured",
+				encounter=encounter.name,
+			)
+
+	def test_a_changed_locked_date_field_is_refused(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		with patch.object(assessment, "get_layout", return_value=self._date_layout()):
+			with self.assertRaises(frappe.ValidationError):
+				api.set_derma_assessment(
+					payload=json.dumps({"encounter_date": "2020-01-01"}), mode="Structured", encounter=encounter.name
+				)
+
+	def test_an_unchanged_locked_table_field_saves(self):
+		"""Same coverage for a Table row: trimmed to its own child fields on both sides before the diff."""
+		patient = self._make_patient()
+		draft = self._make_encounter(patient)
+		complaint = frappe.get_doc(
+			{"doctype": "Complaint", "complaints": f"Itch {frappe.generate_hash(length=6)}"}
+		).insert(ignore_permissions=True)
+		self.addCleanup(frappe.delete_doc, "Complaint", complaint.name, True)
+		draft.append("symptoms", {"complaint": complaint.name})
+		draft.save(ignore_permissions=True)
+		draft.submit()
+
+		layout = [
+			{
+				"fieldname": "symptoms",
+				"fieldtype": "Table MultiSelect",
+				"is_value_field": True,
+				"allow_on_submit": 0,
+				"fields": assessment.child_table_layout("Patient Encounter Symptom"),
+			}
+		]
+		encounter = frappe.get_doc("Patient Encounter", draft.name)
+		current = assessment.serialize_values(encounter, layout)["symptoms"]
+		with patch.object(assessment, "get_layout", return_value=layout):
+			api.set_derma_assessment(
+				payload=json.dumps({"symptoms": current}, default=str), mode="Structured", encounter=encounter.name
+			)

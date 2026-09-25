@@ -182,6 +182,28 @@ def serialize_values(encounter_doc, layout: list[dict[str, Any]]) -> dict[str, A
 	return values
 
 
+def normalized_values(values: dict[str, Any], layout: list[dict[str, Any]]) -> dict[str, Any]:
+	"""Values in one comparable form, so a native doc value and its raw JSON twin compare equal.
+
+	Table rows are trimmed to the row's own child fields, like `serialize_values` does; every
+	other value is cast to a string, so a Date and its "YYYY-MM-DD" twin compare equal too.
+	"""
+	field_map = {row["fieldname"]: row for row in layout if row.get("fieldname")}
+	normalized = {}
+	for fieldname, value in values.items():
+		row = field_map.get(fieldname)
+		if row and row.get("fieldtype") in TABLE_FIELD_TYPES:
+			allowed = {field.get("fieldname") for field in row.get("fields") or [] if field.get("fieldname")}
+			normalized[fieldname] = [
+				{key: cstr(child.get(key)) for key in allowed if key in child}
+				for child in (value or [])
+				if isinstance(child, dict)
+			]
+		else:
+			normalized[fieldname] = cstr(value)
+	return normalized
+
+
 def read_assessment(encounter_doc) -> dict[str, Any]:
 	"""The full assessment payload for one encounter, in both modes."""
 	mode = get_assessment_mode(encounter_doc)
