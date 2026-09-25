@@ -685,6 +685,9 @@ const { isBroken, markBroken } = useBrokenImages()
 // A completion the clinician has started but not yet confirmed. Guards re-entry without
 // claiming the button's busy label.
 const completionPending = ref(false)
+// Same shape as completionPending: claims a reopen before its reason dialog, so a second
+// click while the dialog is open can't open a second one.
+const reopenPending = ref(false)
 const reopeningSession = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
@@ -2434,7 +2437,7 @@ async function submitSessionCompletion(overrideReason) {
   await refresh()
 }
 
-/** The typed reason, or null when the clinician backed out. */
+/** The typed reason; resolves null only when the clinician closes the dialog. */
 function askReopenReason(title) {
   return new Promise((resolve) => {
     let answered = false
@@ -2443,9 +2446,12 @@ function askReopenReason(title) {
       fields: [{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: 1 }],
       primary_action_label: __("Reopen"),
       primary_action({ reason }) {
+        const trimmed = (reason || "").trim()
+        if (!trimmed) return
         answered = true
+        // Resolve before hiding: onhide is the cancel path and would answer first.
+        resolve(trimmed)
         dialog.hide()
-        resolve((reason || "").trim() || null)
       },
     })
     dialog.onhide = () => {
@@ -2456,18 +2462,23 @@ function askReopenReason(title) {
 }
 
 async function reopenRecord(method, args, title) {
-  if (reopeningSession.value) return
-  reopeningSession.value = true
+  if (reopenPending.value) return
+  reopenPending.value = true
   try {
     const reason = await askReopenReason(title)
     if (!reason) return
-    await frappe.call({ method, args: { ...args, reason } })
-    frappe.show_alert({ message: __("Reopened."), indicator: "orange" })
-    await refresh()
-  } catch (err) {
-    frappe.msgprint({ title, message: serverErrorText(err, __("Unable to reopen.")), indicator: "red" })
+    reopeningSession.value = true
+    try {
+      await frappe.call({ method, args: { ...args, reason } })
+      frappe.show_alert({ message: __("Reopened."), indicator: "orange" })
+      await refresh()
+    } catch (err) {
+      frappe.msgprint({ title, message: serverErrorText(err, __("Unable to reopen.")), indicator: "red" })
+    } finally {
+      reopeningSession.value = false
+    }
   } finally {
-    reopeningSession.value = false
+    reopenPending.value = false
   }
 }
 
