@@ -1033,7 +1033,7 @@ function consumableOwners(row) {
       name: mark.name,
       label: markConsumablesLabel(mark),
       source: mark,
-      editable: true,
+      editable: isEditable(row),
     }))
   }
   if (!isPersistedRow(row)) return []

@@ -104,6 +104,20 @@ class TestEncounterLock(DermaTestHelpers, IntegrationTestCase):
 		self.assertLocked(lambda: api.prune_chart_marks([mark["name"]]))
 		self.assertTrue(frappe.db.exists("Derma Chart Mark", mark["name"]))
 
+	def test_procedure_from_a_mark_is_refused(self):
+		mark = frappe.get_doc(
+			{
+				"doctype": "Derma Chart Mark",
+				"patient": self.patient,
+				"encounter": self.encounter.name,
+				"x_percent": 10,
+				"y_percent": 20,
+			}
+		).insert(ignore_permissions=True)
+		self.assertLocked(
+			lambda: api.create_procedure_from_mark(mark.name, self._get_or_create_procedure_template())
+		)
+
 	def test_owning_encounter_of_a_procedure(self):
 		procedure = self._submitted_procedure()
 		self.assertEqual(api._get_owning_encounter("Clinical Procedure", procedure.name), self.encounter.name)

@@ -3936,6 +3936,7 @@ def save_chart_mark(values: str | dict[str, Any]):
 	if name:
 		_ensure_owner_open("Derma Chart Mark", name)
 	_ensure_encounter_open(payload.get("encounter"))
+	_ensure_owner_open("Clinical Procedure", payload.get("clinical_procedure"))
 
 	_normalize_position(payload)
 	if MARK_SIZE_FIELD in payload:
@@ -4044,8 +4045,11 @@ def _get_owning_encounter(doctype: str, name: str | None) -> str | None:
 
 
 def _ensure_owner_open(doctype: str, name: str | None) -> None:
-	"""A procedure must be a draft itself as well as sit in an open encounter."""
-	if doctype == "Clinical Procedure" and name and cint(frappe.db.get_value(doctype, name, "docstatus")):
+	"""A procedure, or a mark placed on one, must be a draft itself as well as sit in an open encounter."""
+	procedure = name if doctype == "Clinical Procedure" else None
+	if doctype == "Derma Chart Mark" and name:
+		procedure = frappe.db.get_value(doctype, name, "clinical_procedure")
+	if procedure and cint(frappe.db.get_value("Clinical Procedure", procedure, "docstatus")):
 		frappe.throw(_("This procedure is completed. Reopen it to make changes."), frappe.ValidationError)
 	_ensure_encounter_open(_get_owning_encounter(doctype, name))
 
@@ -4087,6 +4091,7 @@ def create_procedure_from_mark(
 
 	if not mark:
 		frappe.throw(_("Chart mark is required."))
+	_ensure_owner_open("Derma Chart Mark", mark)
 	mark_doc = frappe.get_doc("Derma Chart Mark", mark)
 	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
 	if payload:
@@ -4182,7 +4187,7 @@ def discard_chart_marks(names: str | list[str]):
 		if not name or not frappe.db.exists("Derma Chart Mark", name):
 			continue
 		mark_doc = frappe.get_doc("Derma Chart Mark", name)
-		_ensure_owner_open("Derma Chart Mark", name)
+		_ensure_encounter_open(mark_doc.encounter)
 		if _is_mark_documented(mark_doc):
 			kept.append(name)
 			continue
@@ -4206,7 +4211,7 @@ def prune_chart_marks(names: str | list[str], annotation: str | None = None):
 		if not name or not frappe.db.exists("Derma Chart Mark", name):
 			continue
 		mark_doc = frappe.get_doc("Derma Chart Mark", name)
-		_ensure_owner_open("Derma Chart Mark", name)
+		_ensure_encounter_open(mark_doc.encounter)
 		if _is_mark_documented(mark_doc, ignore_annotation=annotation):
 			kept.append(name)
 			continue

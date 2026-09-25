@@ -43,8 +43,8 @@ def save(mark_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 	"""Replace one mark's consumables outright and answer what the chart should now show."""
 	from do_derma import api
 
+	api._ensure_owner_open("Derma Chart Mark", mark_name)
 	mark_doc = frappe.get_doc("Derma Chart Mark", mark_name)
-	api._ensure_encounter_open(mark_doc.encounter)
 	mark_doc.set("consumables", rows)
 	_apply_batch_identity(mark_doc, rows)
 	mark_doc.save(ignore_permissions=True)

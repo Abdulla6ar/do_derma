@@ -177,6 +177,46 @@ class TestReopenProcedure(PrescriptionHelpers, IntegrationTestCase):
 		self._invoice().cancel()
 		self.assertEqual(reopen.get_submitted_invoices([self.procedure.name]), {})
 
+	def _mark(self):
+		return frappe.get_doc(
+			{
+				"doctype": "Derma Chart Mark",
+				"patient": self.patient,
+				"encounter": self.encounter.name,
+				"clinical_procedure": self.procedure.name,
+				"x_percent": 40,
+				"y_percent": 60,
+			}
+		).insert(ignore_permissions=True)
+
+	def _mark_writes(self, mark):
+		payload = {
+			"patient": self.patient,
+			"encounter": self.encounter.name,
+			"x_percent": 41,
+			"y_percent": 61,
+		}
+		return (
+			lambda: api.save_consumables("Derma Chart Mark", mark.name, []),
+			lambda: api.save_chart_mark(json.dumps({"name": mark.name, **payload})),
+			lambda: api.save_chart_mark(json.dumps({"clinical_procedure": self.procedure.name, **payload})),
+		)
+
+	def test_marks_of_a_completed_procedure_stay_locked_in_a_reopened_visit(self):
+		mark = self._mark()
+		api.reopen_derma_session(self.encounter.name, "Fix the note")
+		for write in self._mark_writes(mark):
+			with self.assertRaises(frappe.ValidationError) as caught:
+				write()
+			self.assertIn("Reopen it to make changes", str(caught.exception))
+
+	def test_marks_of_a_reopened_procedure_take_writes(self):
+		mark = self._mark()
+		api.reopen_derma_session(self.encounter.name, "Fix a procedure")
+		api.reopen_derma_procedure(self.procedure.name, "Wrong dose")
+		for write in self._mark_writes(mark):
+			write()
+
 	def test_completing_again_resubmits_it(self):
 		api.reopen_derma_session(self.encounter.name, "Fix a procedure")
 		api.reopen_derma_procedure(self.procedure.name, "Wrong dose")
