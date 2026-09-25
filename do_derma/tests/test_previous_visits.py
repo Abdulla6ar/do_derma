@@ -91,3 +91,16 @@ class TestPreviousVisits(DermaTestHelpers, IntegrationTestCase):
 		frappe.set_user(self._make_limited_user())
 		with self.assertRaises(frappe.PermissionError):
 			self._page()
+
+	def test_negative_page_length_is_clamped_instead_of_scanning_everything(self):
+		for _ in range(3):
+			self._with_assessment()
+
+		page = self._page(page_length=-1)
+
+		self.assertEqual((len(page["visits"]), page["has_more"]), (1, True))
+
+	def test_negative_start_is_refused(self):
+		self._with_assessment()
+		with self.assertRaises(frappe.ValidationError):
+			self._page(start=-1)

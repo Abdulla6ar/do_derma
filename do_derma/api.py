@@ -4650,8 +4650,14 @@ def get_previous_visits(patient: str, current_encounter: str | None = None, star
 	_ensure_clinical_access()
 	if not patient:
 		frappe.throw(_("Patient is required."))
+	if cint(start) < 0:
+		frappe.throw(_("Start must not be negative."), frappe.ValidationError)
 	return previous_visits.get_page(
-		patient, current_encounter, cint(start), min(cint(page_length) or 5, 20), _load_visit_drawings
+		patient,
+		current_encounter,
+		cint(start),
+		max(1, min(cint(page_length) or 5, 20)),
+		_load_visit_drawings,
 	)
 
 
