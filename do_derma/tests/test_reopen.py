@@ -283,3 +283,18 @@ class TestChartReopenPayload(PrescriptionHelpers, IntegrationTestCase):
 			if (row.get("clinical_procedure") or row.get("name")) == procedure.name
 		]
 		self.assertEqual(rows[0]["submitted_invoice"], "ACC-SINV-TEST")
+
+	def test_procedure_rows_carry_docstatus_for_reopening(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		draft = self._make_clinical_procedure(patient)
+		draft.db_set(api._get_clinical_procedure_encounter_field(), encounter.name)
+		submitted = self._make_clinical_procedure(patient)
+		submitted.db_set(api._get_clinical_procedure_encounter_field(), encounter.name)
+		submitted.db_set("docstatus", 1)
+
+		chart = api.get_patient_derma_chart(patient_id=patient, encounter=encounter.name)
+
+		rows = {(row.get("clinical_procedure") or row.get("name")): row for row in chart["procedures"]}
+		self.assertEqual(rows[draft.name]["docstatus"], 0)
+		self.assertEqual(rows[submitted.name]["docstatus"], 1)

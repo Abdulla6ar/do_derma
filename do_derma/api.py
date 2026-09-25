@@ -1672,6 +1672,7 @@ def _get_derma_procedures(
 		"Clinical Procedure",
 		[
 			"name",
+			"docstatus",
 			"patient",
 			"appointment",
 			"procedure_template",
