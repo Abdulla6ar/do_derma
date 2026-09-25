@@ -534,6 +534,10 @@
   gap: 8px;
 }
 
+.previous-visit > header > button {
+  margin-left: auto;
+}
+
 .previous-visit > header small,
 .previous-visit-assessment dt {
   color: var(--derma-text-muted);
@@ -557,6 +561,139 @@
 .previous-visit-assessment.is-expanded dd {
   display: block;
   overflow: visible;
+}
+
+.visit-summary-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Under Bootstrap's modal (1040+), so a drawing opened from the summary stacks on top. */
+  z-index: 1035;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.visit-summary-dialog {
+  width: min(760px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--derma-white);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+  outline: none;
+}
+
+.visit-summary-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--derma-bg-muted);
+}
+
+.visit-summary-dialog > header strong {
+  display: block;
+  color: var(--derma-text-strong);
+  font-size: 15px;
+}
+
+.visit-summary-dialog > header small {
+  display: block;
+  margin-top: 2px;
+  color: var(--derma-text-muted);
+  font-size: 12px;
+}
+
+.visit-summary-body {
+  display: grid;
+  gap: 18px;
+  padding: 16px 18px 20px;
+  overflow-y: auto;
+  color: var(--derma-text-secondary);
+  font-size: 13px;
+}
+
+.visit-summary-body h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--derma-text-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.visit-summary-body h4 small {
+  color: var(--derma-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.visit-summary-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.visit-summary-fields dt {
+  color: var(--derma-text-muted);
+  font-weight: 600;
+}
+
+.visit-summary-fields dd {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.visit-summary-row {
+  display: block;
+}
+
+.visit-summary-row + .visit-summary-row {
+  margin-top: 3px;
+}
+
+.visit-summary-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.visit-summary-list li {
+  padding: 8px 12px;
+  border: 1px solid var(--derma-border-subtle);
+  border-radius: 8px;
+  background: var(--derma-bg-subtle);
+}
+
+.visit-summary-list b {
+  display: block;
+  color: var(--derma-text-strong);
+}
+
+.visit-summary-list small {
+  display: block;
+  margin-top: 2px;
+  color: var(--derma-text-muted);
+  font-size: 12px;
+}
+
+.visit-summary-text {
+  margin: 4px 0 0;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.visit-summary-body .chart-annotation-list {
+  padding: 0;
 }
 
 .chart-annotation-preview {

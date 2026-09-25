@@ -10,6 +10,14 @@
       <header>
         <b>{{ formatDate(visit.encounter_date) }}</b>
         <small>{{ visit.practitioner_name }}</small>
+        <button
+          type="button"
+          class="ghost small"
+          data-test="previous-visit-summary"
+          @click="summaryEncounter = visit.encounter"
+        >
+          {{ __("View Summary") }}
+        </button>
       </header>
       <div v-if="visit.drawings.length" class="chart-annotation-list">
         <div v-for="drawing in visit.drawings" :key="drawing.name" class="chart-annotation-card">
@@ -66,6 +74,14 @@
       <span v-if="loading" class="chart-spinner" aria-hidden="true"></span>
       {{ __("Load more") }}
     </button>
+    <VisitSummaryDialog
+      :encounter="summaryEncounter"
+      :preview-of="previewOf"
+      :label-of="labelOf"
+      :format-date="formatDate"
+      @close="summaryEncounter = ''"
+      @open-drawing="$emit('open-drawing', $event)"
+    />
   </section>
 </template>
 
@@ -73,9 +89,12 @@
 import { reactive, ref, watch } from "vue"
 import { serverErrorText } from "../../../shared/error_text.js"
 import { useBrokenImages } from "../../../shared/broken_images.js"
+import VisitSummaryDialog from "./VisitSummaryDialog.vue"
 
 const __ = window.__ || ((txt) => txt)
 const PREVIEW_FIELDS = 3
+const FIRST_PAGE = 1
+const MORE_PAGE = 5
 
 const props = defineProps({
   patient: { type: String, default: "" },
@@ -92,6 +111,7 @@ const visits = ref([])
 const hasMore = ref(false)
 const loading = ref(false)
 const error = ref("")
+const summaryEncounter = ref("")
 const expanded = reactive(new Set())
 let nextStart = 0
 let requestId = 0
@@ -104,7 +124,12 @@ async function loadPage() {
   try {
     const { message } = await frappe.call({
       method: "do_derma.api.get_previous_visits",
-      args: { patient: props.patient, current_encounter: props.currentEncounter, start: nextStart },
+      args: {
+        patient: props.patient,
+        current_encounter: props.currentEncounter,
+        start: nextStart,
+        page_length: nextStart ? MORE_PAGE : FIRST_PAGE,
+      },
     })
     if (request !== requestId) return
     visits.value = [...visits.value, ...(message.visits || [])]
@@ -135,6 +160,7 @@ watch(
     hasMore.value = false
     loading.value = false
     error.value = ""
+    summaryEncounter.value = ""
     expanded.clear()
     nextStart = 0
     loadPage()
