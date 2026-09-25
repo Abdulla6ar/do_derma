@@ -2488,6 +2488,18 @@ def get_session_readiness(
 	return readiness_session.get_session_readiness(patient, appointment=appointment, encounter=encounter)
 
 
+def _add_submitted_invoices(procedures: list[dict[str, Any]]) -> None:
+	"""Stamp each procedure row with the Sales Invoice that bills it, if any.
+	Rows get an empty default first, so a lookup failure leaves the key present."""
+	for row in procedures:
+		row.setdefault("submitted_invoice", "")
+	invoices = reopen.get_submitted_invoices(
+		[row.get("clinical_procedure") or row.get("name") for row in procedures if row.get("name")]
+	)
+	for row in procedures:
+		row["submitted_invoice"] = invoices.get(row.get("clinical_procedure") or row.get("name"), "")
+
+
 @frappe.whitelist()
 def get_patient_derma_chart(
 	patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None
@@ -2509,6 +2521,7 @@ def get_patient_derma_chart(
 		[],
 		lambda: _get_derma_procedures(patient, appointment=appointment_id, encounter=encounter_id),
 	)
+	section("submitted invoices", None, lambda: _add_submitted_invoices(procedures))
 	annotation_context = section(
 		"annotations",
 		{
@@ -2582,6 +2595,11 @@ def get_patient_derma_chart(
 		),
 		"settings": get_feature_toggles(),
 		"context_errors": context_errors,
+		"permissions": {
+			"can_reopen_encounter": bool(encounter_id)
+			and bool(frappe.has_permission("Patient Encounter", "cancel", doc=encounter_id)),
+			"can_reopen_procedure": bool(frappe.has_permission("Clinical Procedure", "cancel")),
+		},
 	}
 
 

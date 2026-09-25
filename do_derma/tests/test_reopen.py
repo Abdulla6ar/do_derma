@@ -264,3 +264,22 @@ class TestResubmitSideEffects(PrescriptionHelpers, IntegrationTestCase):
 			),
 			1,
 		)
+
+
+class TestChartReopenPayload(PrescriptionHelpers, IntegrationTestCase):
+	def test_reports_reopen_rights_and_invoices(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		procedure = self._make_clinical_procedure(patient)
+		procedure.db_set(api._get_clinical_procedure_encounter_field(), encounter.name)
+
+		with patch.object(reopen, "get_submitted_invoices", return_value={procedure.name: "ACC-SINV-TEST"}):
+			chart = api.get_patient_derma_chart(patient_id=patient, encounter=encounter.name)
+
+		self.assertEqual(chart["permissions"], {"can_reopen_encounter": True, "can_reopen_procedure": True})
+		rows = [
+			row
+			for row in chart["procedures"]
+			if (row.get("clinical_procedure") or row.get("name")) == procedure.name
+		]
+		self.assertEqual(rows[0]["submitted_invoice"], "ACC-SINV-TEST")
