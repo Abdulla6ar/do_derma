@@ -3682,7 +3682,9 @@ def _complete_derma_procedures_for_session(patient: str, encounter: str) -> dict
 			doc = frappe.get_doc("Clinical Procedure", name)
 			if not doc.has_permission("submit"):
 				frappe.throw(_("Not permitted"), frappe.PermissionError)
+			before = reopen.get_nursing_tasks(name)
 			doc.submit()
+			reopen.drop_repeated_nursing_tasks(name, before)
 			if _has_field("Clinical Procedure", "status"):
 				doc.db_set("status", "Completed", update_modified=True)
 			completed.append(name)
@@ -3750,6 +3752,24 @@ def reopen_derma_session(encounter: str, reason: str | None = None):
 	doc = frappe.get_doc("Patient Encounter", encounter)
 	reopen.reopen_document(doc, reason, status="Open")
 	return {"encounter": doc.name, "docstatus": 0}
+
+
+@frappe.whitelist()
+def reopen_derma_procedure(procedure: str, reason: str | None = None):
+	"""Put one completed procedure back to draft inside a reopened visit."""
+	_ensure_clinical_access()
+	doc = frappe.get_doc("Clinical Procedure", procedure)
+	_ensure_encounter_open(_get_owning_encounter("Clinical Procedure", doc.name))
+	invoice = reopen.get_submitted_invoices([doc.name]).get(doc.name)
+	if invoice:
+		frappe.throw(
+			_("Procedure {0} is billed on submitted invoice {1}. Cancel or return the invoice first.").format(
+				doc.name, invoice
+			),
+			frappe.ValidationError,
+		)
+	reopen.reopen_document(doc, reason, status="In Progress")
+	return {"procedure": doc.name, "docstatus": 0}
 
 
 def _drop_uninstalled_app_messages() -> None:
