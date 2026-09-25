@@ -1203,13 +1203,12 @@ class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
 		self.assertTrue(result["encounter_submitted"])
 		self.assertEqual(frappe.db.get_value("Patient Encounter", encounter.name, "docstatus"), 1)
 
-	def test_does_not_resubmit_an_already_submitted_encounter(self):
+	def test_completing_a_completed_encounter_is_refused(self):
 		patient = self._make_patient()
 		encounter = self._make_encounter(patient, docstatus=1)
 
-		result = api.complete_derma_session(encounter=encounter.name, patient=patient)
-
-		self.assertFalse(result["encounter_submitted"])
+		with self.assertRaises(frappe.ValidationError):
+			api.complete_derma_session(encounter=encounter.name, patient=patient)
 
 
 class TestCompleteDermaSessionBlockers(DermaTestHelpers, IntegrationTestCase):

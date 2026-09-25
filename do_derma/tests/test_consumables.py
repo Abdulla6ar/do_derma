@@ -304,7 +304,7 @@ class TestConsumablesApi(ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelp
 		with self.assertRaises(frappe.ValidationError) as caught:
 			api.save_consumables("Derma Chart Mark", mark.name, [])
 
-		self.assertIn("closed", str(caught.exception))
+		self.assertIn("Reopen it to make changes", str(caught.exception))
 
 	def test_an_unknown_item_is_refused_by_name(self):
 		with self.assertRaises(frappe.ValidationError) as caught:
@@ -840,7 +840,7 @@ class TestProcedureOwnedConsumables(
 		with self.assertRaises(frappe.ValidationError) as caught:
 			api.save_consumables("Clinical Procedure", self.procedure.name, [])
 
-		self.assertIn("closed", str(caught.exception))
+		self.assertIn("Reopen it to make changes", str(caught.exception))
 
 	def test_a_save_without_clinical_access_is_refused(self):
 		frappe.set_user(self._make_limited_user())
