@@ -6,6 +6,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
+from do_derma import assessment
 from do_derma.tests.test_api import PIXEL_PNG, DermaTestHelpers
 
 LOCKED = "Reopen it to make changes"
@@ -109,3 +110,44 @@ class TestEncounterLock(DermaTestHelpers, IntegrationTestCase):
 		draft = self._make_encounter(self.patient)
 		mark = self._save_mark(self.patient, encounter=draft.name)
 		self.assertTrue(mark["name"])
+
+
+class TestEditsAfterSubmit(DermaTestHelpers, IntegrationTestCase):
+	"""Fields the clinic allows on submit stay editable; everything else is locked."""
+
+	def _first_field(self, layout, allow_on_submit):
+		for row in layout:
+			if (
+				row.get("is_value_field")
+				and row.get("fieldtype") in {"Data", "Small Text", "Text", "Long Text", "Text Editor"}
+				and bool(row.get("allow_on_submit")) == allow_on_submit
+			):
+				return row["fieldname"]
+		self.skipTest(f"This site's assessment layout has no text field with allow_on_submit={allow_on_submit}.")
+
+	def test_a_locked_assessment_field_is_refused(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		mode = assessment.get_assessment_mode(encounter)
+		field = self._first_field(assessment.get_layout(mode), allow_on_submit=False)
+		with self.assertRaises(frappe.ValidationError):
+			api.set_derma_assessment(payload=json.dumps({field: "changed"}), mode=mode, encounter=encounter.name)
+
+	def test_an_unchanged_assessment_payload_saves(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		mode = assessment.get_assessment_mode(encounter)
+		values = assessment.serialize_values(encounter, assessment.get_layout(mode))
+		api.set_derma_assessment(payload=json.dumps(values, default=str), mode=mode, encounter=encounter.name)
+
+	def test_procedure_notes_stay_editable_after_submit(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		procedure.submit()
+		saved = api.update_clinical_procedure_fields(procedure.name, json.dumps({"notes": "Healed well."}))
+		self.assertEqual(saved["notes"], "Healed well.")
+
+	def test_a_locked_procedure_field_is_refused(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		procedure.submit()
+		with self.assertRaises(frappe.ValidationError):
+			api.update_clinical_procedure_fields(procedure.name, json.dumps({"start_date": "2020-01-01"}))

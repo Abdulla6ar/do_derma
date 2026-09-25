@@ -3243,7 +3243,13 @@ def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=No
 	if not encounter_doc:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
 
+	layout = assessment.get_layout(assessment.normalize_mode(mode) or assessment.get_assessment_mode(encounter_doc))
+	before = assessment.serialize_values(encounter_doc, layout)
 	assessment.apply_assessment(encounter_doc, values, mode=mode)
+	# apply_assessment already drops any field it cannot write on a submitted encounter, so the
+	# doc state never shows a blocked attempt. Diff the raw request instead of the saved fields.
+	attempted = {fieldname: value for fieldname, value in values.items() if fieldname in before}
+	_ensure_changes_allowed_on_submit(encounter_doc, before, attempted)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
 	return get_derma_assessment(encounter=encounter_doc.name)
@@ -3571,6 +3577,7 @@ def update_clinical_procedure_fields(procedure_name: str, updates=None):
 	doc = frappe.get_doc("Clinical Procedure", procedure_name)
 	if not doc.has_permission("write"):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	before = {fieldname: doc.get(fieldname) for fieldname in values}
 	for fieldname, value in values.items():
 		if fieldname in {"name", "doctype", "docstatus"}:
 			continue
@@ -3578,6 +3585,10 @@ def update_clinical_procedure_fields(procedure_name: str, updates=None):
 			# Skipping would hand the chart a success it did not earn and lose the edit.
 			frappe.throw(_("Clinical Procedure has no field {0}.").format(fieldname), frappe.ValidationError)
 		doc.set(fieldname, value)
+	if cint(doc.docstatus):
+		_ensure_changes_allowed_on_submit(doc, before, {fieldname: doc.get(fieldname) for fieldname in values})
+	else:
+		_ensure_encounter_open(_get_owning_encounter("Clinical Procedure", doc.name))
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save(ignore_permissions=True)
 	return doc.as_dict()
@@ -3952,6 +3963,25 @@ def _ensure_owner_open(doctype: str, name: str | None) -> None:
 	if doctype == "Clinical Procedure" and name and cint(frappe.db.get_value(doctype, name, "docstatus")):
 		frappe.throw(_("This procedure is completed. Reopen it to make changes."), frappe.ValidationError)
 	_ensure_encounter_open(_get_owning_encounter(doctype, name))
+
+
+def _ensure_changes_allowed_on_submit(doc, before: dict[str, Any], after: dict[str, Any]) -> None:
+	"""A submitted document may change only the fields Frappe allows on submit."""
+	if not cint(doc.docstatus):
+		return
+	locked = [
+		fieldname
+		for fieldname, value in after.items()
+		if value != before.get(fieldname)
+		and doc.meta.has_field(fieldname)
+		and not doc.meta.get_field(fieldname).allow_on_submit
+	]
+	if locked:
+		labels = ", ".join(_(doc.meta.get_label(fieldname)) for fieldname in locked)
+		frappe.throw(
+			_("{0} is completed, so {1} cannot change. Reopen it to make changes.").format(_(doc.doctype), labels),
+			frappe.ValidationError,
+		)
 
 
 def _next_mark_sequence(patient: str, encounter: str | None = None, category: str | None = None) -> int:
