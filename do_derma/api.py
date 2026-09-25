@@ -3759,11 +3759,17 @@ def reopen_derma_procedure(procedure: str, reason: str | None = None):
 	"""Put one completed procedure back to draft inside a reopened visit."""
 	_ensure_clinical_access()
 	doc = frappe.get_doc("Clinical Procedure", procedure)
-	_ensure_encounter_open(_get_owning_encounter("Clinical Procedure", doc.name))
+	encounter = _get_owning_encounter("Clinical Procedure", doc.name)
+	if not encounter:
+		frappe.throw(
+			_("Procedure {0} is not linked to a visit, so it cannot be reopened here.").format(doc.name),
+			frappe.ValidationError,
+		)
+	_ensure_encounter_open(encounter)
 	invoice = reopen.get_submitted_invoices([doc.name]).get(doc.name)
 	if invoice:
 		frappe.throw(
-			_("Procedure {0} is billed on submitted invoice {1}. Cancel or return the invoice first.").format(
+			_("Procedure {0} is billed on submitted invoice {1}. Cancel the invoice first.").format(
 				doc.name, invoice
 			),
 			frappe.ValidationError,

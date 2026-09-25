@@ -37,18 +37,22 @@ def get_submitted_invoices(procedures: list[str]) -> dict[str, str]:
 	"""The submitted Sales Invoice billing each procedure, keyed by procedure."""
 	if not procedures:
 		return {}
-	invoices = {
-		row.reference_dn: row.parent
-		for row in frappe.get_all(
-			"Sales Invoice Item",
-			filters={
-				"reference_dt": "Clinical Procedure",
-				"reference_dn": ["in", procedures],
-				"docstatus": 1,
-			},
-			fields=["reference_dn", "parent"],
+	invoice = frappe.qb.DocType("Sales Invoice")
+	item = frappe.qb.DocType("Sales Invoice Item")
+	rows = (
+		frappe.qb.from_(item)
+		.join(invoice)
+		.on(invoice.name == item.parent)
+		.select(item.reference_dn, invoice.name)
+		.where(
+			(item.reference_dt == "Clinical Procedure")
+			& item.reference_dn.isin(procedures)
+			& (invoice.docstatus == 1)
+			& (invoice.is_return == 0)
 		)
-	}
+		.run()
+	)
+	invoices = dict(rows)
 	if frappe.db.exists("DocType", "Billing Charge"):
 		for row in frappe.get_all(
 			"Billing Charge",

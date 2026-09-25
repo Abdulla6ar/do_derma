@@ -4,6 +4,7 @@ import json
 from unittest.mock import patch
 
 import frappe
+from do_health.billing import hooks as billing_hooks
 from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
@@ -88,6 +89,7 @@ class TestReopenSession(PrescriptionHelpers, IntegrationTestCase):
 
 class TestReopenProcedure(PrescriptionHelpers, IntegrationTestCase):
 	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
 		self.patient = self._make_patient()
 		self.encounter = self._make_encounter(self.patient)
 		self.procedure = self._make_clinical_procedure(self.patient)
@@ -116,6 +118,63 @@ class TestReopenProcedure(PrescriptionHelpers, IntegrationTestCase):
 		self.assertIn("ACC-SINV-TEST", str(caught.exception))
 
 	def test_invoice_lookup_runs_against_the_real_schema(self):
+		self.assertEqual(reopen.get_submitted_invoices([self.procedure.name]), {})
+
+	def test_a_procedure_outside_a_visit_is_refused(self):
+		procedure = self._make_clinical_procedure(self.patient)
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.reopen_derma_procedure(procedure.name, "Wrong dose")
+		self.assertIn("not linked to a visit", str(caught.exception))
+
+	def _invoice(self, return_against=None):
+		"""A submitted invoice billing this procedure, or a credit note against one."""
+		company = frappe.get_cached_doc("Company", self.procedure.company)
+		invoice = frappe.get_doc(
+			{
+				"doctype": "Sales Invoice",
+				"company": company.name,
+				"customer": frappe.db.get_value("Patient", self.patient, "customer")
+				or frappe.db.get_value("Customer", {}, "name"),
+				"currency": company.default_currency,
+				"debit_to": company.default_receivable_account,
+				"is_pos": 0,
+				"is_return": int(bool(return_against)),
+				"return_against": return_against,
+				"items": [
+					{
+						"item_code": frappe.db.get_value(
+							"Item", {"disabled": 0, "is_sales_item": 1, "is_stock_item": 0}, "name"
+						),
+						"qty": -1 if return_against else 1,
+						"rate": 10,
+						"income_account": company.default_income_account,
+						"cost_center": company.cost_center,
+						"reference_dt": "Clinical Procedure",
+						"reference_dn": self.procedure.name,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		# do_health only lets its Billing Controller submit healthcare invoices.
+		invoice.flags.legacy_patient_invoice_submit_token = billing_hooks._LEGACY_PATIENT_INVOICE_SUBMIT_TOKEN
+		invoice.submit()
+		return invoice
+
+	def test_a_submitted_invoice_is_found(self):
+		invoice = self._invoice()
+		self.assertEqual(
+			reopen.get_submitted_invoices([self.procedure.name]), {self.procedure.name: invoice.name}
+		)
+
+	def test_the_original_invoice_is_named_not_its_credit_note(self):
+		invoice = self._invoice()
+		self._invoice(return_against=invoice.name)
+		self.assertEqual(
+			reopen.get_submitted_invoices([self.procedure.name]), {self.procedure.name: invoice.name}
+		)
+
+	def test_a_cancelled_invoice_does_not_block(self):
+		self._invoice().cancel()
 		self.assertEqual(reopen.get_submitted_invoices([self.procedure.name]), {})
 
 	def test_completing_again_resubmits_it(self):
