@@ -523,19 +523,32 @@
 
 .previous-visit {
   display: grid;
-  gap: 8px;
-  padding: 10px 0;
+  gap: 10px;
+  padding: 12px;
   border-top: 1px solid var(--derma-border-subtle);
 }
 
 .previous-visit > header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
 .previous-visit > header > button {
   margin-left: auto;
+}
+
+.previous-visit .chart-annotation-list {
+  padding: 0;
+}
+
+.previous-visit > button,
+.previous-visits-more {
+  justify-self: start;
+}
+
+.previous-visits-more {
+  margin: 0 12px 12px;
 }
 
 .previous-visit > header small,
@@ -1596,6 +1609,7 @@
 .dental-chart-page .context-lock-toggle,
 .dental-chart-page .ghost,
 .dental-chart-page .primary,
+.dental-chart-page .reopen,
 .dental-chart-page .workspace-tab,
 .dental-chart-page .category-tab>button,
 .dental-chart-page .category-menu button {

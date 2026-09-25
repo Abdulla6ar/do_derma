@@ -66,7 +66,7 @@
     <button
       v-if="hasMore && !error"
       type="button"
-      class="ghost small"
+      class="ghost small previous-visits-more"
       data-test="previous-visits-more"
       :disabled="loading"
       @click="loadPage"
