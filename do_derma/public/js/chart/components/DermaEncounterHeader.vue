@@ -54,6 +54,9 @@
       >
         {{ reopening ? __("Reopening...") : __("Reopen Encounter") }}
       </button>
+      <span v-else class="encounter-completed-note" data-test="encounter-completed-note">
+        {{ __("Completed. Reopening needs cancel permission.") }}
+      </span>
     </div>
 
     <div v-if="alerts.length" class="encounter-alert-chips" data-test="encounter-alerts">

@@ -434,7 +434,7 @@
                   type="button"
                   data-test="procedure-reopen"
                   :disabled="Boolean(row.submitted_invoice)"
-                  :title="row.submitted_invoice ? __('Billed on {0}. Cancel or return the invoice before reopening.').replace('{0}', row.submitted_invoice) : __('Reopen procedure')"
+                  :title="row.submitted_invoice ? __('Billed on {0}. Cancel the invoice before reopening.').replace('{0}', row.submitted_invoice) : __('Reopen procedure')"
                   :aria-label="__('Reopen procedure')"
                   @click="$emit('reopen-procedure', row)"
                 >

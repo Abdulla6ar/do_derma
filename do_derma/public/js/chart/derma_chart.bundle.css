@@ -155,6 +155,11 @@
   border-color: #92400e;
 }
 
+.encounter-completed-note {
+  color: var(--derma-text-muted);
+  font-size: 12px;
+}
+
 .derma-mode-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

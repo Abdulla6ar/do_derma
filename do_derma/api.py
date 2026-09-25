@@ -2498,8 +2498,7 @@ def get_session_readiness(
 
 
 def _add_submitted_invoices(procedures: list[dict[str, Any]]) -> None:
-	"""Stamp each procedure row with the Sales Invoice that bills it, if any.
-	Rows get an empty default first, so a lookup failure leaves the key present."""
+	"""Stamp each procedure row with the Sales Invoice that bills it, or an empty string."""
 	for row in procedures:
 		row.setdefault("submitted_invoice", "")
 	invoices = reopen.get_submitted_invoices(
@@ -3396,7 +3395,6 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 	_validate_prescription_rows(prescriptions)
 	prescriptions = _merge_ordered_prescriptions(_drug_prescription_rows(encounter_doc), prescriptions)
 	encounter_doc.set("drug_prescription", prescriptions)
-	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
 	return {"encounter": encounter_doc.name, "drug_prescription": _drug_prescription_rows(encounter_doc)}
 
@@ -3777,6 +3775,8 @@ def reopen_derma_session(encounter: str, reason: str | None = None):
 	"""Put a completed visit back to draft. Procedures, invoices and orders stay submitted."""
 	_ensure_clinical_access()
 	doc = frappe.get_doc("Patient Encounter", encounter)
+	reopen.ensure_can_reopen(doc)
+	reopen.ensure_no_therapy_plan(doc.name)
 	reopen.reopen_document(doc, reason, status="Open")
 	return {"encounter": doc.name, "docstatus": 0}
 
@@ -3793,6 +3793,7 @@ def reopen_derma_procedure(procedure: str, reason: str | None = None):
 			frappe.ValidationError,
 		)
 	_ensure_encounter_open(encounter)
+	reopen.ensure_can_reopen(doc)
 	invoice = reopen.get_submitted_invoices([doc.name]).get(doc.name)
 	if invoice:
 		frappe.throw(

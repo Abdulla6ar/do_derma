@@ -7,11 +7,7 @@ from frappe.utils import cint, get_fullname
 
 def reopen_document(doc, reason: str | None, status: str) -> None:
 	"""Put a submitted document and its child rows back to draft, and say why on its timeline."""
-	if not doc.has_permission("cancel"):
-		frappe.throw(
-			_("You are not permitted to reopen {0} {1}.").format(_(doc.doctype), doc.name),
-			frappe.PermissionError,
-		)
+	ensure_can_reopen(doc)
 	reason = (reason or "").strip()
 	if not reason:
 		frappe.throw(_("A reason is required to reopen {0}.").format(doc.name), frappe.ValidationError)
@@ -31,6 +27,28 @@ def reopen_document(doc, reason: str | None, status: str) -> None:
 		)
 	doc.db_set({"docstatus": 0, "status": status}, update_modified=True)
 	doc.add_comment("Comment", _("Reopened by {0}: {1}").format(get_fullname(), reason))
+
+
+def ensure_can_reopen(doc) -> None:
+	if not doc.has_permission("cancel"):
+		frappe.throw(
+			_("You are not permitted to reopen {0} {1}.").format(_(doc.doctype), doc.name),
+			frappe.PermissionError,
+		)
+
+
+def ensure_no_therapy_plan(encounter: str) -> None:
+	"""Completing again would order a second plan: healthcare creates one on each submit with therapies."""
+	if not frappe.db.exists("DocType", "Therapy Plan"):
+		return
+	plan = frappe.db.exists("Therapy Plan", {"source_doc": "Patient Encounter", "order_group": encounter})
+	if plan:
+		frappe.throw(
+			_("Encounter {0} has Therapy Plan {1}. Reopening would create a second plan.").format(
+				encounter, plan
+			),
+			frappe.ValidationError,
+		)
 
 
 def get_submitted_invoices(procedures: list[str]) -> dict[str, str]:

@@ -86,6 +86,45 @@ class TestReopenSession(PrescriptionHelpers, IntegrationTestCase):
 
 		self.assertEqual(frappe.db.count("Medication Request", {"order_group": encounter.name}), 2)
 
+	def test_prescription_rows_go_back_to_draft(self):
+		encounter = self._make_encounter(self.patient)
+		api.set_derma_prescriptions(payload=json.dumps([self._row()]), encounter=encounter.name)
+		api.complete_derma_session(encounter=encounter.name, patient=self.patient)
+
+		api.reopen_derma_session(encounter.name, "Change the dose")
+
+		rows = frappe.get_all(
+			"Drug Prescription",
+			filters={"parent": encounter.name, "parenttype": "Patient Encounter"},
+			pluck="docstatus",
+		)
+		self.assertEqual(rows, [0])
+
+	def _therapy_plan(self):
+		"""The row healthcare's Therapy Plan creation leaves, written directly: a real plan needs a Therapy Type and its Item."""
+		if not frappe.db.exists("DocType", "Therapy Plan"):
+			self.skipTest("healthcare's Therapy Plan is not installed.")
+		plan = frappe.get_doc(
+			{
+				"doctype": "Therapy Plan",
+				"patient": self.patient,
+				"start_date": frappe.utils.nowdate(),
+				"company": self.encounter.company or frappe.db.get_value("Company", {}, "name"),
+				"practitioner": self.encounter.practitioner,
+				"source_doc": "Patient Encounter",
+				"order_group": self.encounter.name,
+			}
+		)
+		plan.db_insert()
+		return plan.name
+
+	def test_an_encounter_with_a_therapy_plan_is_refused(self):
+		plan = self._therapy_plan()
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self._reopen()
+		self.assertIn(plan, str(caught.exception))
+		self.assertEqual(frappe.db.get_value("Patient Encounter", self.encounter.name, "docstatus"), 1)
+
 
 class TestReopenProcedure(PrescriptionHelpers, IntegrationTestCase):
 	def setUp(self):
@@ -116,6 +155,16 @@ class TestReopenProcedure(PrescriptionHelpers, IntegrationTestCase):
 			with self.assertRaises(frappe.ValidationError) as caught:
 				api.reopen_derma_procedure(self.procedure.name, "Wrong dose")
 		self.assertIn("ACC-SINV-TEST", str(caught.exception))
+
+	def test_permission_is_checked_before_the_invoice_is_named(self):
+		api.reopen_derma_session(self.encounter.name, "Fix a procedure")
+		frappe.set_user(self._make_user_with_role("Nursing User"))
+		with patch.object(
+			reopen, "get_submitted_invoices", return_value={self.procedure.name: "ACC-SINV-TEST"}
+		):
+			with self.assertRaises(frappe.PermissionError) as caught:
+				api.reopen_derma_procedure(self.procedure.name, "Wrong dose")
+		self.assertNotIn("ACC-SINV-TEST", str(caught.exception))
 
 	def test_invoice_lookup_runs_against_the_real_schema(self):
 		self.assertEqual(reopen.get_submitted_invoices([self.procedure.name]), {})
