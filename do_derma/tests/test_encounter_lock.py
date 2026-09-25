@@ -176,7 +176,13 @@ class TestEditsAfterSubmit(DermaTestHelpers, IntegrationTestCase):
 				)
 
 	def test_an_unchanged_locked_table_field_saves(self):
-		"""Same coverage for a Table row: trimmed to its own child fields on both sides before the diff."""
+		"""Same coverage for a Table row: trimmed to its own child fields on both sides before the diff.
+
+		Patient Encounter Symptom's only child field is a Link (`complaint`), so this end-to-end
+		path never exercises a native/JSON type mismatch - see
+		test_normalized_values_casts_table_child_by_fieldtype below for that, against a synthetic
+		layout, since no Table field in this doctype's real schema has a non-Link child column.
+		"""
 		patient = self._make_patient()
 		draft = self._make_encounter(patient)
 		complaint = frappe.get_doc(
@@ -202,3 +208,70 @@ class TestEditsAfterSubmit(DermaTestHelpers, IntegrationTestCase):
 			api.set_derma_assessment(
 				payload=json.dumps({"symptoms": current}, default=str), mode="Structured", encounter=encounter.name
 			)
+
+	def test_normalized_values_casts_table_child_by_fieldtype(self):
+		"""A Table child's own fieldtype is cast on both sides, not just stringified.
+
+		A Float child is the case that a blanket `cstr` gets wrong: the doc-native `1.0` and its
+		JSON twin `1` stringify to "1.0" and "1" - different - unless each side is cast to Float
+		first. An Int child would not catch this (`cstr(1) == cstr("1")` already).
+		"""
+		layout = [
+			{
+				"fieldname": "readings",
+				"fieldtype": "Table",
+				"is_value_field": True,
+				"allow_on_submit": 0,
+				"fields": [{"fieldname": "score", "fieldtype": "Float"}],
+			}
+		]
+		native = assessment.normalized_values({"readings": [{"score": 1.0}]}, layout)
+		as_json = assessment.normalized_values({"readings": [{"score": "1"}]}, layout)
+		changed = assessment.normalized_values({"readings": [{"score": "2"}]}, layout)
+		self.assertEqual(native, as_json)
+		self.assertNotEqual(native, changed)
+
+	def _float_layout(self):
+		"""A locked Float field, faked on Patient Encounter's cached meta - not a real column.
+
+		Patient Encounter has no real Float/Int/Currency field to reuse, and adding one via a
+		real Custom Field in a test is unsafe: Custom Field insert runs an ALTER TABLE, which
+		implicitly commits in MySQL and broke this test framework's per-test rollback when
+		tried - it leaked the column and the Custom Field row straight past `addCleanup` and
+		had to be dropped by hand. `_ensure_changes_allowed_on_submit` also needs the field to
+		pass `doc.meta.has_field(...)`, which a bare layout dict alone cannot satisfy, so the
+		cached Meta's `_fields` lookup (shared by every `doc.meta` access in this process -
+		verified) gets the fake DocField instead, in memory only, popped back out by
+		`addCleanup`. `get_valid_columns()` reads `meta.fields` (a different attribute), not
+		`_fields`, so this never makes Frappe try to load or save a column that does not exist.
+		"""
+		fieldname = "custom_derma_test_score"
+		meta = frappe.get_meta("Patient Encounter")
+		meta._fields[fieldname] = frappe._dict(
+			{"fieldname": fieldname, "fieldtype": "Float", "allow_on_submit": 0, "label": "Derma Test Score"}
+		)
+		self.addCleanup(meta._fields.pop, fieldname, None)
+		return [{"fieldname": fieldname, "fieldtype": "Float", "is_value_field": True, "allow_on_submit": 0}]
+
+	def test_an_unchanged_locked_float_field_saves(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		layout = self._float_layout()
+		with (
+			patch.object(assessment, "get_layout", return_value=layout),
+			patch.object(assessment, "serialize_values", return_value={"custom_derma_test_score": 1.0}),
+		):
+			api.set_derma_assessment(
+				payload=json.dumps({"custom_derma_test_score": "1"}), mode="Structured", encounter=encounter.name
+			)
+
+	def test_a_changed_locked_float_field_is_refused(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		layout = self._float_layout()
+		with (
+			patch.object(assessment, "get_layout", return_value=layout),
+			patch.object(assessment, "serialize_values", return_value={"custom_derma_test_score": 1.0}),
+		):
+			with self.assertRaises(frappe.ValidationError):
+				api.set_derma_assessment(
+					payload=json.dumps({"custom_derma_test_score": "2"}), mode="Structured", encounter=encounter.name
+				)

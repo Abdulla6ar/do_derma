@@ -9,7 +9,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cint, cstr
+from frappe.utils import cast, cint, cstr
 
 from do_derma.settings import SETTINGS_DOCTYPE, get_settings_doc
 
@@ -185,23 +185,33 @@ def serialize_values(encounter_doc, layout: list[dict[str, Any]]) -> dict[str, A
 def normalized_values(values: dict[str, Any], layout: list[dict[str, Any]]) -> dict[str, Any]:
 	"""Values in one comparable form, so a native doc value and its raw JSON twin compare equal.
 
-	Table rows are trimmed to the row's own child fields, like `serialize_values` does; every
-	other value is cast to a string, so a Date and its "YYYY-MM-DD" twin compare equal too.
+	Each value is cast to its own field's Python type first - the rule `BaseDocument.cast` uses -
+	so a Float `1.0` and its JSON `1` land on one value instead of `"1.0" != "1"`, then stringified
+	for a simple diff. Table rows are trimmed to the row's own child fields, like `serialize_values`
+	does, with each child value cast by its own child fieldtype the same way.
 	"""
 	field_map = {row["fieldname"]: row for row in layout if row.get("fieldname")}
 	normalized = {}
 	for fieldname, value in values.items():
 		row = field_map.get(fieldname)
 		if row and row.get("fieldtype") in TABLE_FIELD_TYPES:
-			allowed = {field.get("fieldname") for field in row.get("fields") or [] if field.get("fieldname")}
+			child_types = {
+				field["fieldname"]: field.get("fieldtype")
+				for field in row.get("fields") or []
+				if field.get("fieldname")
+			}
 			normalized[fieldname] = [
-				{key: cstr(child.get(key)) for key in allowed if key in child}
+				{key: _cast_str(child.get(key), child_types[key]) for key in child_types if key in child}
 				for child in (value or [])
 				if isinstance(child, dict)
 			]
 		else:
-			normalized[fieldname] = cstr(value)
+			normalized[fieldname] = _cast_str(value, row.get("fieldtype") if row else None)
 	return normalized
+
+
+def _cast_str(value: Any, fieldtype: str | None) -> str:
+	return cstr(cast(fieldtype, value))
 
 
 def read_assessment(encounter_doc) -> dict[str, Any]:
