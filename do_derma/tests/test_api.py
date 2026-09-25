@@ -618,6 +618,63 @@ class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
 		self.assertIsInstance(chart["procedures"], list)
 
 
+class TestVisitContextPatientMismatch(DermaTestHelpers, IntegrationTestCase):
+	"""A patient argument that names someone else's encounter or appointment must be
+	refused loudly, never silently overridden by the encounter's/appointment's own patient."""
+
+	def test_encounter_refuses_a_different_patient(self):
+		owner = self._make_patient()
+		other = self._make_patient()
+		encounter = self._make_encounter(owner)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.ensure_chart_context(patient=other, encounter=encounter.name)
+
+	def test_encounter_accepts_its_own_patient(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		context = api.ensure_chart_context(patient=patient, encounter=encounter.name)
+
+		self.assertEqual(context["patient"], patient)
+		self.assertEqual(context["encounter"], encounter.name)
+
+	def test_appointment_refuses_a_different_patient(self):
+		owner = self._make_patient()
+		other = self._make_patient()
+		appointment = frappe.get_doc(
+			{
+				"doctype": "Patient Appointment",
+				"patient": owner,
+				"appointment_type": self._get_or_create_appointment_type(),
+				"practitioner": self._get_or_create_practitioner(),
+				"appointment_date": nowdate(),
+				"appointment_time": nowtime(),
+			}
+		).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.ensure_chart_context(patient=other, appointment=appointment.name)
+
+	def test_appointment_accepts_its_own_patient(self):
+		patient = self._make_patient()
+		appointment = frappe.get_doc(
+			{
+				"doctype": "Patient Appointment",
+				"patient": patient,
+				"appointment_type": self._get_or_create_appointment_type(),
+				"practitioner": self._get_or_create_practitioner(),
+				"appointment_date": nowdate(),
+				"appointment_time": nowtime(),
+			}
+		).insert(ignore_permissions=True)
+
+		context = api.ensure_chart_context(patient=patient, appointment=appointment.name)
+
+		self.assertEqual(context["patient"], patient)
+		self.assertEqual(context["appointment"], appointment.name)
+
+
 class TestAnnotationAnchoring(DermaTestHelpers, IntegrationTestCase):
 	"""save_derma_annotation anchors to whichever parent the caller names, updates in
 	place when handed an annotation_name, and never deletes a mark already promoted to

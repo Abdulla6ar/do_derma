@@ -362,10 +362,18 @@ def _get_visit_context(
 ) -> dict[str, Any]:
 	if encounter:
 		encounter_doc = frappe.get_doc("Patient Encounter", encounter)
+		if patient and patient != encounter_doc.patient:
+			frappe.throw(
+				_("Encounter {0} belongs to a different patient.").format(encounter), frappe.ValidationError
+			)
 		patient = patient or encounter_doc.patient
 		appointment = appointment or encounter_doc.appointment
 	elif appointment:
 		appointment_doc = frappe.get_doc("Patient Appointment", appointment)
+		if patient and patient != appointment_doc.patient:
+			frappe.throw(
+				_("Appointment {0} belongs to a different patient.").format(appointment), frappe.ValidationError
+			)
 		patient = patient or appointment_doc.patient
 		encounter = _ensure_encounter(appointment=appointment, patient=patient)
 	elif patient:

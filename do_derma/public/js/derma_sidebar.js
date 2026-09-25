@@ -53,7 +53,7 @@
 		if (!root?.querySelectorAll) return;
 		// The observer watches all of document.body, so most mutations are unrelated
 		// to Visit History; skip the querySelectorAll unless root is in the drawer.
-		if (root.id !== "do-health-panel-drawer" && !root.closest?.(VISIT_HISTORY.drawer)) return;
+		if (!root.matches?.(VISIT_HISTORY.drawer) && !root.closest?.(VISIT_HISTORY.drawer)) return;
 		root.querySelectorAll(VISIT_HISTORY.actions).forEach((actions) => {
 			const encounterButton = actions.querySelector(VISIT_HISTORY.encounterButton);
 			if (!encounterButton || actions.querySelector(VISIT_HISTORY.chartButton)) return;
