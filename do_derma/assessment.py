@@ -9,7 +9,8 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cast, cint, cstr
+from frappe.utils import cast, cint, cstr, strip_html
+from frappe.utils.html_utils import unescape_html
 
 from do_derma.settings import SETTINGS_DOCTYPE, get_settings_doc
 
@@ -248,6 +249,26 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 			"practitioner": encounter_doc.get("practitioner"),
 		},
 	}
+
+
+def get_preview(encounter_doc) -> list[dict[str, str]]:
+	"""The documented format's filled fields as label and plain text."""
+	layout = get_layout(get_assessment_mode(encounter_doc))
+	values = serialize_values(encounter_doc, layout)
+	preview = []
+	for row in layout:
+		text = _preview_text(row, values.get(row.get("fieldname")))
+		if text:
+			preview.append({"label": _(row.get("label") or row.get("fieldname")), "value": text})
+	return preview
+
+
+def _preview_text(row: dict[str, Any], value: Any) -> str:
+	if row.get("fieldtype") in TABLE_FIELD_TYPES:
+		return _("{0} row(s)").format(len(value)) if value else ""
+	if row.get("fieldtype") == "Check":
+		return _("Yes") if cint(value) else ""
+	return unescape_html(strip_html(cstr(value or ""))).strip()
 
 
 def empty_assessment() -> dict[str, Any]:

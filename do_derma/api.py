@@ -11,7 +11,7 @@ from frappe import _
 from frappe.utils import cint, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
-from do_derma import assessment, reopen, voice
+from do_derma import assessment, previous_visits, reopen, voice
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.config.marker_size import (
 	MARK_SIZE_FIELD,
@@ -4635,6 +4635,24 @@ def get_patient_timeline(patient: str, current_encounter: str | None = None, lim
 		rows.append({"kind": "Treatment", **row})
 	rows.sort(key=lambda row: row.get("modified") or "", reverse=True)
 	return rows[: cint(limit)]
+
+
+def _load_visit_drawings(encounter: str) -> list[dict[str, Any]]:
+	"""An encounter's drawings and its procedures', without the scene JSON."""
+	field = _get_clinical_procedure_encounter_field()
+	procedures = frappe.get_all("Clinical Procedure", filters={field: encounter}, pluck="name") if field else []
+	parents = [("Patient Encounter", encounter), *(("Clinical Procedure", name) for name in procedures)]
+	return _load_annotations_for_parents(parents, include_scene=False)
+
+
+@frappe.whitelist()
+def get_previous_visits(patient: str, current_encounter: str | None = None, start: int = 0, page_length: int = 5):
+	_ensure_clinical_access()
+	if not patient:
+		frappe.throw(_("Patient is required."))
+	return previous_visits.get_page(
+		patient, current_encounter, cint(start), min(cint(page_length) or 5, 20), _load_visit_drawings
+	)
 
 
 @frappe.whitelist()
