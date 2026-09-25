@@ -346,7 +346,7 @@ class TestAnnotationSummary(DermaTestHelpers, IntegrationTestCase):
 			}
 		)
 
-		context = api._load_derma_annotation_context(encounter=encounter.name, patient=patient)
+		context = api._load_derma_annotation_context(encounter=encounter.name)
 
 		self.assertEqual(
 			context["encounter_annotations"][0].get("custom_derma_body_template_title"),
@@ -1061,7 +1061,7 @@ class TestAnnotationAreaValues(DermaTestHelpers, IntegrationTestCase):
 			}
 		)
 
-		context = api.get_derma_annotations(encounter=encounter.name, patient=patient)
+		context = api.get_derma_annotations(encounter=encounter.name)
 		rows = context.get("encounter_annotations") or context.get("annotations") or []
 		row = next(row for row in rows if row["name"] == saved["name"])
 

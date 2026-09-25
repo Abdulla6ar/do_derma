@@ -229,3 +229,21 @@ class TestVisitSummary(PrescriptionHelpers, IntegrationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			self._summary()
 
+
+class TestDrawingsSection(DermaTestHelpers, IntegrationTestCase):
+	def test_a_visit_without_drawings_borrows_none_from_another_visit(self):
+		patient = self._make_patient()
+		drawn = self._make_encounter(patient)
+		api.save_derma_annotation(
+			{
+				"doctype": "Patient Encounter",
+				"docname": drawn.name,
+				"file_data": PIXEL_PNG,
+				"json_text": json.dumps({"elements": []}),
+			}
+		)
+		empty = self._make_encounter(patient)
+
+		context = api.get_patient_derma_chart(patient_id=patient, encounter=empty.name)
+
+		self.assertEqual((context["annotations"], context["latest_annotation"]), ([], None))

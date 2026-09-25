@@ -2060,37 +2060,10 @@ def _hydrate_photo_sets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	return rows
 
 
-def _load_annotation_history(
-	encounter: str | None = None, patient: str | None = None
-) -> list[dict[str, Any]]:
-	rows: list[dict[str, Any]] = []
-	if encounter:
-		rows = _load_annotations_for_parents([("Patient Encounter", encounter)])
-
-	if not rows and patient:
-		encounters = frappe.get_all(
-			"Patient Encounter", filters={"patient": patient}, fields=["name"], limit=20
-		)
-		parents = [("Patient Encounter", row.name) for row in encounters]
-		rows = _load_annotations_for_parents(parents)
-
-	seen = set()
-	unique = []
-	for row in rows:
-		name = row.get("name")
-		if not name or name in seen:
-			continue
-		seen.add(name)
-		unique.append(row)
-	unique.sort(key=lambda row: row.get("creation") or "", reverse=True)
-	return unique
-
-
 def _load_derma_annotation_context(
-	encounter: str | None = None,
-	patient: str | None = None,
-	procedure_names: list[str] | None = None,
+	encounter: str | None = None, procedure_names: list[str] | None = None
 ) -> dict[str, Any]:
+	"""This encounter's drawings and its procedures', never another visit's."""
 	procedure_names = [name for name in (procedure_names or []) if name]
 	parents: list[tuple[str, str]] = []
 	if encounter:
@@ -2098,8 +2071,6 @@ def _load_derma_annotation_context(
 	parents.extend(("Clinical Procedure", name) for name in procedure_names)
 
 	rows = _load_annotations_for_parents(parents)
-	if not rows:
-		rows = _load_annotation_history(encounter=encounter, patient=patient)
 
 	encounter_annotations = [
 		row
@@ -2540,7 +2511,6 @@ def get_patient_derma_chart(
 		},
 		lambda: _load_derma_annotation_context(
 			encounter=encounter_id,
-			patient=patient,
 			procedure_names=[row.get("name") for row in procedures],
 		),
 	)
@@ -2846,14 +2816,10 @@ def _append_body_template_note(notes: str | None, values: dict[str, Any]) -> str
 
 
 @frappe.whitelist()
-def get_derma_annotations(
-	encounter: str | None = None, patient: str | None = None, clinical_procedure: str | None = None
-):
+def get_derma_annotations(encounter: str | None = None, clinical_procedure: str | None = None):
 	_ensure_clinical_access()
 	procedure_names = [clinical_procedure] if clinical_procedure else []
-	return _load_derma_annotation_context(
-		encounter=encounter, patient=patient, procedure_names=procedure_names
-	)
+	return _load_derma_annotation_context(encounter=encounter, procedure_names=procedure_names)
 
 
 ANNOTATION_SUMMARY_PARENTS = ("Patient Encounter", "Clinical Procedure")
@@ -3186,7 +3152,6 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 
 	context = _load_derma_annotation_context(
 		encounter=values.get("encounter") or (docname if doctype == "Patient Encounter" else None),
-		patient=patient,
 		procedure_names=[clinical_procedure or docname] if doctype == "Clinical Procedure" else [],
 	)
 	if doctype == "Clinical Procedure":

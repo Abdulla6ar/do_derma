@@ -1757,10 +1757,8 @@ async function openAnnotationStudio(anchor = {}) {
 }
 
 /**
- * Only ever resume a drawing that belongs to this anchor. `encounter_annotations` falls back to
- * the patient's previous visits when this encounter has none (api.py `_load_derma_annotation_context`),
- * which is what the Previous Annotations strip wants and what resume must never accept - saving
- * with that annotation_name would overwrite the earlier visit's drawing.
+ * Only ever resume a drawing that belongs to this anchor: saving with another visit's
+ * annotation_name would overwrite that visit's drawing.
  */
 function latestAnnotationForAnchor(clinicalProcedure) {
   if (clinicalProcedure) return (procedureAnnotations.value[clinicalProcedure] || [])[0] || null
@@ -1768,8 +1766,7 @@ function latestAnnotationForAnchor(clinicalProcedure) {
 }
 
 /**
- * Same guard, applied per row: the strip also lists earlier visits' drawings, and resuming one
- * would overwrite it on save. Those stay review-only.
+ * Same guard, applied per row: a drawing from another anchor stays review-only.
  */
 function isResumableAnnotation(annotation) {
   return Boolean(annotation?.source_name) && annotation.source_name === encounter.value.name
