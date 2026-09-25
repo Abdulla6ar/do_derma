@@ -11,7 +11,7 @@ from frappe import _
 from frappe.utils import cint, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
-from do_derma import assessment, voice
+from do_derma import assessment, reopen, voice
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.config.marker_size import (
 	MARK_SIZE_FIELD,
@@ -3741,6 +3741,15 @@ def complete_derma_session(
 		"invoice_error": invoice_error,
 		"readiness": readiness,
 	}
+
+
+@frappe.whitelist()
+def reopen_derma_session(encounter: str, reason: str | None = None):
+	"""Put a completed visit back to draft. Procedures, invoices and orders stay submitted."""
+	_ensure_clinical_access()
+	doc = frappe.get_doc("Patient Encounter", encounter)
+	reopen.reopen_document(doc, reason, status="Open")
+	return {"encounter": doc.name, "docstatus": 0}
 
 
 def _drop_uninstalled_app_messages() -> None:
