@@ -263,11 +263,52 @@ def get_preview(encounter_doc) -> list[dict[str, str]]:
 	return preview
 
 
+def get_summary(encounter_doc) -> list[dict[str, Any]]:
+	"""The documented format's filled fields; a table field lists its filled rows."""
+	layout = get_layout(get_assessment_mode(encounter_doc))
+	values = serialize_values(encounter_doc, layout)
+	summary = []
+	for row in layout:
+		label = _(row.get("label") or row.get("fieldname"))
+		value = values.get(row.get("fieldname"))
+		if row.get("fieldtype") in TABLE_FIELD_TYPES:
+			rows = get_table_rows(row, value)
+			if rows:
+				summary.append({"label": label, "rows": rows})
+		elif text := get_field_text(row.get("fieldtype"), value):
+			summary.append({"label": label, "value": text})
+	return summary
+
+
+def get_table_rows(row: dict[str, Any], value: Any) -> list[list[dict[str, str]]]:
+	"""Each child row as label and text pairs for its filled fields; empty rows are dropped."""
+	fields = [field for field in row.get("fields") or [] if field.get("fieldname")]
+	rows = []
+	for child in value or []:
+		pairs = [
+			{"label": _(field.get("label") or field["fieldname"]), "value": text}
+			for field in fields
+			if (text := get_field_text(field.get("fieldtype"), child.get(field["fieldname"])))
+		]
+		if pairs:
+			rows.append(pairs)
+	return rows
+
+
 def _preview_text(row: dict[str, Any], value: Any) -> str:
 	if row.get("fieldtype") in TABLE_FIELD_TYPES:
 		return _("{0} row(s)").format(len(value)) if value else ""
-	if row.get("fieldtype") == "Check":
+	return get_field_text(row.get("fieldtype"), value)
+
+
+def get_field_text(fieldtype: str | None, value: Any) -> str:
+	if fieldtype == "Check":
 		return _("Yes") if cint(value) else ""
+	return get_plain_text(value)
+
+
+def get_plain_text(value: Any) -> str:
+	"""Editor markup and entities stripped, so `<p>&nbsp;</p>` reads as empty."""
 	return unescape_html(strip_html(cstr(value or ""))).strip()
 
 

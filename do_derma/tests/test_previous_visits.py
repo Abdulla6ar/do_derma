@@ -10,6 +10,7 @@ from frappe.utils import add_days, nowdate
 import do_derma.api as api
 from do_derma import assessment, previous_visits
 from do_derma.tests.test_api import PIXEL_PNG, DermaTestHelpers
+from do_derma.tests.test_encounter_tabs import PrescriptionHelpers
 
 TEXT_TYPES = {"Small Text", "Text", "Long Text", "Text Editor"}
 
@@ -147,3 +148,84 @@ class TestPreviousVisits(DermaTestHelpers, IntegrationTestCase):
 		procedure.db_set("docstatus", 2)
 
 		self.assertEqual(api._load_visit_drawings(encounter.name), [])
+
+
+class TestVisitSummary(PrescriptionHelpers, IntegrationTestCase):
+	def setUp(self):
+		super().setUp()
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _layout_field(self, fieldtypes):
+		for row in assessment.get_layout(assessment.get_assessment_mode(self.encounter)):
+			if row.get("is_value_field") and row.get("fieldtype") in fieldtypes:
+				return row
+		self.skipTest(f"This site's assessment layout has no {'/'.join(sorted(fieldtypes))} field.")
+
+	def _link_child_row(self, table_field):
+		for field in table_field.get("fields") or []:
+			if field.get("fieldtype") == "Link" and frappe.db.exists(field["options"], {}):
+				value = frappe.db.get_value(field["options"], {}, "name")
+				label = field.get("label") or field["fieldname"]
+				return {field["fieldname"]: value}, {"label": label, "value": value}
+		self.skipTest(f"{table_field['fieldname']} has no Link child field with data on this site.")
+
+	def _summary(self):
+		return api.get_visit_summary(self.encounter.name)
+
+	def test_lists_a_text_field_and_a_table_fields_real_rows(self):
+		text_field = self._layout_field(TEXT_TYPES)
+		table_field = self._layout_field(assessment.TABLE_FIELD_TYPES)
+		child, expected_pair = self._link_child_row(table_field)
+		self.encounter.set(text_field["fieldname"], "<p>Dry &amp; flaky.</p>")
+		self.encounter.set(table_field["fieldname"], [child])
+		self.encounter.save(ignore_permissions=True)
+
+		fields = {field["label"]: field for field in self._summary()["assessment"]}
+
+		self.assertEqual(fields[text_field["label"]]["value"], "Dry & flaky.")
+		self.assertEqual(fields[table_field["label"]]["rows"], [[expected_pair]])
+
+	def test_names_the_documented_mode(self):
+		self.assertEqual(self._summary()["mode_label"], "Structured Assessment")
+
+	def test_a_cancelled_procedure_is_left_out(self):
+		field = api._get_clinical_procedure_encounter_field()
+		if not field:
+			self.skipTest("Clinical Procedure has no encounter link on this site.")
+		kept, cancelled = (self._make_clinical_procedure(self.patient) for _ in range(2))
+		for procedure in (kept, cancelled):
+			procedure.db_set(field, self.encounter.name)
+		cancelled.db_set("docstatus", 2)
+
+		names = [procedure["name"] for procedure in self._summary()["procedures"]]
+
+		self.assertEqual(names, [kept.name])
+
+	def test_lists_a_prescription_row(self):
+		row = self._row(drug_name="Hydrocortisone 1%", comment="Thin layer at night")
+		api.set_derma_prescriptions(payload=json.dumps([row]), encounter=self.encounter.name)
+
+		prescription = self._summary()["prescriptions"][0]
+
+		self.assertEqual(
+			(prescription["drug"], prescription["period"], prescription["comment"]),
+			("Hydrocortisone 1%", row["period"], "Thin layer at night"),
+		)
+
+	def test_an_unknown_encounter_is_refused(self):
+		with self.assertRaises(frappe.DoesNotExistError):
+			api.get_visit_summary("HLC-ENC-does-not-exist")
+
+	def test_a_cancelled_encounter_is_refused(self):
+		self.encounter.submit()
+		self.encounter.cancel()
+		with self.assertRaises(frappe.ValidationError):
+			self._summary()
+
+	def test_is_gated(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			self._summary()
+

@@ -8,7 +8,7 @@ from typing import Any
 import frappe
 from do_health.api.appointment_methods import create_encounter_for_appointment
 from frappe import _
-from frappe.utils import cint, flt, now_datetime, nowdate
+from frappe.utils import cint, cstr, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
 from do_derma import assessment, previous_visits, reopen, voice
@@ -4678,6 +4678,56 @@ def get_previous_visits(patient: str, current_encounter: str | None = None, star
 		max(1, min(cint(page_length) or 5, 20)),
 		_load_visit_drawings,
 	)
+
+
+@frappe.whitelist()
+def get_visit_summary(encounter: str):
+	_ensure_clinical_access()
+	if not encounter or not frappe.db.exists("Patient Encounter", encounter):
+		frappe.throw(_("Patient Encounter {0} not found.").format(encounter), frappe.DoesNotExistError)
+	doc = _resolve_patient_encounter_doc(encounter=encounter)
+	if cint(doc.docstatus) == 2:
+		frappe.throw(_("Patient Encounter {0} is cancelled.").format(encounter), frappe.ValidationError)
+	return {
+		"encounter": doc.name,
+		"encounter_date": doc.encounter_date,
+		"practitioner_name": doc.practitioner_name or doc.practitioner or "",
+		"mode_label": _(assessment.MODE_LABELS[assessment.get_assessment_mode(doc)]),
+		"assessment": assessment.get_summary(doc),
+		"patient_advice": assessment.get_plain_text(doc.get("custom_derma_patient_advice")),
+		"procedures": _get_visit_summary_procedures(doc),
+		"prescriptions": _get_visit_summary_prescriptions(doc),
+		"drawings": _load_visit_drawings(doc.name),
+	}
+
+
+def _get_visit_summary_procedures(doc) -> list[dict[str, Any]]:
+	"""`title` follows procedureDisplayName in shared/procedure_label.js."""
+	if not _get_clinical_procedure_encounter_field():
+		return []
+	return [
+		{
+			"name": row.name,
+			"title": row.get("template_label") or row.get("procedure_template") or row.name,
+			"status": row.get("status") or "",
+			"practitioner_name": row.get("practitioner_name") or row.get("practitioner") or "",
+			"notes": assessment.get_plain_text(row.get("notes")),
+		}
+		for row in _get_derma_procedures(doc.patient, encounter=doc.name)
+		if cint(row.get("docstatus")) != 2
+	]
+
+
+def _get_visit_summary_prescriptions(doc) -> list[dict[str, Any]]:
+	return [
+		{
+			"drug": row.get("drug_name") or row.get("medication") or row.get("drug_code") or "",
+			"dosage": cstr(row.get("dosage")),
+			"period": cstr(row.get("period")),
+			"comment": assessment.get_plain_text(row.get("comment")),
+		}
+		for row in _drug_prescription_rows(doc)
+	]
 
 
 @frappe.whitelist()
