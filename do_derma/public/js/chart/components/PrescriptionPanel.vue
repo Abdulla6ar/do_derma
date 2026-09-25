@@ -31,6 +31,15 @@
         <span class="chart-spinner" aria-hidden="true"></span>
         {{ __("Filling in the medication's dosage and duration...") }}
       </p>
+      <div v-if="orderedRows.length" class="prescription-ordered" data-test="prescription-ordered">
+        <p class="status-note">{{ __("Already ordered. These rows cannot change.") }}</p>
+        <ul>
+          <li v-for="row in orderedRows" :key="row.medication_request">
+            <b>{{ row.drug_name || row.medication || row.drug_code }}</b>
+            <small>{{ [row.dosage, row.period].filter(Boolean).join(" · ") }} · {{ row.medication_request }}</small>
+          </li>
+        </ul>
+      </div>
       <div ref="tableHost" class="table-host" data-test="prescription-table-host"></div>
     </div>
   </section>
@@ -62,6 +71,7 @@ const fillingDefaults = ref(false)
 let renderQueued = false
 
 const canSave = computed(() => props.hasSessionContext && props.hasEncounter && !props.readOnly)
+const orderedRows = computed(() => (props.rows || []).filter((row) => row.medication_request))
 
 watch(
   () => [props.rows, props.hasEncounter, props.hasSessionContext, props.readOnly],
@@ -285,7 +295,7 @@ async function renderTable() {
 
   const grid = tableControl.grid
   if (grid) {
-    grid.df.data = normalizeRows(props.rows || [])
+    grid.df.data = normalizeRows((props.rows || []).filter((row) => !row.medication_request))
     grid.refresh()
     tableControl.$wrapper?.on?.("input change blur", "input, textarea, select, .form-control", syncDirtyRows)
   }
@@ -386,5 +396,36 @@ button:disabled {
 
 .table-host:deep(.frappe-control) {
   margin-bottom: 0;
+}
+
+.prescription-ordered {
+  margin-bottom: 10px;
+}
+
+.prescription-ordered ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prescription-ordered li {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #f8fafc;
+}
+
+.prescription-ordered b {
+  font-size: 13px;
+  color: #111827;
+}
+
+.prescription-ordered small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
 }
 </style>

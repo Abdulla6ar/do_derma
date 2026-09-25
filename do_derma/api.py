@@ -2235,6 +2235,25 @@ def _validate_prescription_rows(rows: list[dict[str, Any]]) -> None:
 			)
 
 
+def _merge_ordered_prescriptions(
+	existing: list[dict[str, Any]], incoming: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+	"""Rows already ordered as a Medication Request are kept as stored, ahead of the new ones."""
+	ordered = [row for row in existing if row.get("medication_request")]
+	known = {row["medication_request"] for row in ordered}
+	fresh = []
+	for row in incoming:
+		request = row.get("medication_request")
+		if request and request not in known:
+			frappe.throw(
+				_("Medication Request {0} does not belong to this encounter.").format(request),
+				frappe.ValidationError,
+			)
+		if not request:
+			fresh.append(row)
+	return [*ordered, *fresh]
+
+
 def _drug_prescription_rows(encounter_doc) -> list[dict[str, Any]]:
 	if not _has_field("Patient Encounter", "drug_prescription"):
 		return []
@@ -3348,6 +3367,7 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 	allowed = _drug_prescription_fields()
 	prescriptions = [_drug_prescription_row(row, allowed) for row in rows if isinstance(row, dict)]
 	_validate_prescription_rows(prescriptions)
+	prescriptions = _merge_ordered_prescriptions(_drug_prescription_rows(encounter_doc), prescriptions)
 	encounter_doc.set("drug_prescription", prescriptions)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
