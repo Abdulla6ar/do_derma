@@ -35,6 +35,7 @@
 
     <div class="encounter-actions">
       <button
+        v-if="!isCompleted"
         type="button"
         class="primary"
         data-test="complete-session"
@@ -42,6 +43,16 @@
         @click="$emit('complete')"
       >
         {{ completing ? __("Completing...") : __("Complete Encounter") }}
+      </button>
+      <button
+        v-else-if="canReopen"
+        type="button"
+        class="reopen"
+        data-test="reopen-session"
+        :disabled="reopening"
+        @click="$emit('reopen')"
+      >
+        {{ reopening ? __("Reopening...") : __("Reopen Encounter") }}
       </button>
     </div>
 
@@ -82,11 +93,14 @@ const props = defineProps({
   // A completion awaiting its confirm dialog: the button refuses a second click without
   // claiming that completion is under way.
   pending: { type: Boolean, default: false },
+  canReopen: { type: Boolean, default: false },
+  reopening: { type: Boolean, default: false },
   alerts: { type: Array, default: () => [] },
 })
 
-defineEmits(["complete", "alert-action"])
+defineEmits(["complete", "reopen", "alert-action"])
 
+const isCompleted = computed(() => Number(props.encounter.docstatus) === 1)
 const patientName = computed(() => props.patient.patient_name || props.patient.name || __("Patient"))
 const initials = computed(() => patientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "P")
 const patientMeta = computed(() => {

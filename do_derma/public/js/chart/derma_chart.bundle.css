@@ -144,6 +144,17 @@
   gap: 8px;
 }
 
+.encounter-actions button.reopen {
+  background: #b45309;
+  border: 1px solid #b45309;
+  color: var(--derma-white);
+}
+
+.encounter-actions button.reopen:hover:not(:disabled) {
+  background: #92400e;
+  border-color: #92400e;
+}
+
 .derma-mode-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

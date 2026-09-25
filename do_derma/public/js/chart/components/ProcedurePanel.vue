@@ -420,12 +420,25 @@
                   class="icon-btn"
                   type="button"
                   data-test="procedure-annotate"
+                  :disabled="readOnly || Number(row.docstatus || 0) > 0"
                   :title="annotateLabel(row)"
                   :aria-label="annotateLabel(row)"
                   @click="$emit('annotate-procedure', row)"
                 >
                   <i class="fa-regular fa-pen-to-square"></i>
                   <span v-if="Number(row.annotation_count || 0)" class="icon-badge">{{ row.annotation_count }}</span>
+                </button>
+                <button
+                  v-if="canReopen && !readOnly && Number(row.docstatus || 0) === 1"
+                  class="icon-btn"
+                  type="button"
+                  data-test="procedure-reopen"
+                  :disabled="Boolean(row.submitted_invoice)"
+                  :title="row.submitted_invoice ? __('Billed on {0}. Cancel or return the invoice before reopening.').replace('{0}', row.submitted_invoice) : __('Reopen procedure')"
+                  :aria-label="__('Reopen procedure')"
+                  @click="$emit('reopen-procedure', row)"
+                >
+                  <i class="fa-solid fa-lock-open"></i>
                 </button>
                 <button
                   v-if="isEditable(row)"
@@ -518,6 +531,7 @@ const props = defineProps({
   previousMarkCount: { type: Number, default: 0 },
   enableLabCases: { type: Boolean, default: false },
   enableBillingSync: { type: Boolean, default: false },
+  canReopen: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -530,6 +544,7 @@ const emit = defineEmits([
   "edit-surfaces",
   "create-lab-case",
   "open-lab-case",
+  "reopen-procedure",
 ])
 
 const advancedFiltersOpen = ref(false)
