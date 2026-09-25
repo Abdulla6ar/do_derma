@@ -72,6 +72,7 @@ let renderQueued = false
 
 const canSave = computed(() => props.hasSessionContext && props.hasEncounter && !props.readOnly)
 const orderedRows = computed(() => (props.rows || []).filter((row) => row.medication_request))
+const editableRows = computed(() => (props.rows || []).filter((row) => !row.medication_request))
 
 watch(
   () => [props.rows, props.hasEncounter, props.hasSessionContext, props.readOnly],
@@ -184,7 +185,7 @@ async function onMedicationChange() {
 
 function syncDirtyRows() {
   if (!tableControl?.grid) {
-    dirtyRows.value = normalizeRows(props.rows || [])
+    dirtyRows.value = normalizeRows(editableRows.value)
     return
   }
   dirtyRows.value = normalizeRows(tableControl.grid.get_data?.() || tableControl.grid.df?.data || [])
@@ -193,7 +194,7 @@ function syncDirtyRows() {
 async function renderTable() {
   if (!tableHost.value || !props.hasEncounter || !props.hasSessionContext) {
     destroyControl()
-    dirtyRows.value = normalizeRows(props.rows || [])
+    dirtyRows.value = normalizeRows(editableRows.value)
     return
   }
 
@@ -295,7 +296,7 @@ async function renderTable() {
 
   const grid = tableControl.grid
   if (grid) {
-    grid.df.data = normalizeRows((props.rows || []).filter((row) => !row.medication_request))
+    grid.df.data = normalizeRows(editableRows.value)
     grid.refresh()
     tableControl.$wrapper?.on?.("input change blur", "input, textarea, select, .form-control", syncDirtyRows)
   }
@@ -306,7 +307,7 @@ async function renderTable() {
 function emitSave() {
   if (!canSave.value || props.saving || props.loading) return
   syncDirtyRows()
-  emit("save", normalizeRows(dirtyRows.value || []))
+  emit("save", dirtyRows.value || [])
 }
 </script>
 
