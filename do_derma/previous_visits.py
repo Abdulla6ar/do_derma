@@ -5,6 +5,8 @@ from typing import Any
 
 import frappe
 from frappe import _
+from frappe.query_builder import Order
+from frappe.query_builder.functions import Coalesce
 
 from do_derma import assessment
 
@@ -47,36 +49,73 @@ def get_latest_encounter(patient: str) -> str | None:
 	return latest[0].name if latest else None
 
 
-def _get_cutoff(current_encounter: str | None) -> dict[str, Any] | None:
-	if not current_encounter:
-		return None
-	cutoff = frappe.db.get_value(
-		"Patient Encounter", current_encounter, ["encounter_date", "creation"], as_dict=True
-	)
-	if not cutoff:
-		frappe.throw(
-			_("Patient Encounter {0} not found.").format(current_encounter), frappe.DoesNotExistError
+def get_visit_moment(encounter: str) -> dict[str, Any]:
+	"""When the visit happened: its appointment's date and time, else the encounter's own."""
+	visit = VisitQuery()
+	rows = visit.select().where(visit.encounter.name == encounter).run(as_dict=True)
+	if not rows:
+		frappe.throw(_("Patient Encounter {0} not found.").format(encounter), frappe.DoesNotExistError)
+	return rows[0]
+
+
+class VisitQuery:
+	"""Encounters with the moment their visit happened.
+
+	An encounter opened today for an old appointment is dated today, so the appointment decides the order.
+	"""
+
+	def __init__(self):
+		self.encounter = frappe.qb.DocType("Patient Encounter")
+		self.appointment = frappe.qb.DocType("Patient Appointment")
+		self.visit_date = Coalesce(self.appointment.appointment_date, self.encounter.encounter_date)
+		self.visit_time = Coalesce(
+			self.appointment.appointment_time, self.encounter.encounter_time, "00:00:00"
 		)
-	return cutoff
+
+	def select(self):
+		return (
+			frappe.qb.from_(self.encounter)
+			.left_join(self.appointment)
+			.on(self.appointment.name == self.encounter.appointment)
+			.select(
+				self.encounter.name,
+				self.encounter.creation,
+				self.encounter.practitioner,
+				self.encounter.practitioner_name,
+				self.visit_date.as_("visit_date"),
+				self.visit_time.as_("visit_time"),
+			)
+		)
+
+	def get_before(self, cutoff: dict[str, Any]):
+		"""Strictly earlier in (visit date, visit time, creation) order."""
+		same_date = self.visit_date == cutoff.visit_date
+		same_moment = same_date & (self.visit_time == cutoff.visit_time)
+		return (
+			(self.visit_date < cutoff.visit_date)
+			| (same_date & (self.visit_time < cutoff.visit_time))
+			| (same_moment & (self.encounter.creation < cutoff.creation))
+		)
+
+
+def _get_cutoff(current_encounter: str | None) -> dict[str, Any] | None:
+	return get_visit_moment(current_encounter) if current_encounter else None
 
 
 def _get_encounters(
 	patient: str, cutoff: dict[str, Any] | None, start: int, limit: int
 ) -> list[dict[str, Any]]:
-	filters: list[list[Any]] = [["patient", "=", patient], ["docstatus", "<", 2]]
-	or_filters: list[list[Any]] = []
+	visit = VisitQuery()
+	query = visit.select().where((visit.encounter.patient == patient) & (visit.encounter.docstatus < 2))
 	if cutoff:
-		# Strictly earlier in (encounter_date desc, creation desc) order.
-		filters.append(["encounter_date", "<=", cutoff.encounter_date])
-		or_filters = [["encounter_date", "<", cutoff.encounter_date], ["creation", "<", cutoff.creation]]
-	return frappe.get_all(
-		"Patient Encounter",
-		filters=filters,
-		or_filters=or_filters,
-		fields=["name", "encounter_date", "practitioner", "practitioner_name"],
-		order_by="encounter_date desc, creation desc",
-		limit_start=start,
-		limit_page_length=limit,
+		query = query.where(visit.get_before(cutoff))
+	return (
+		query.orderby(visit.visit_date, order=Order.desc)
+		.orderby(visit.visit_time, order=Order.desc)
+		.orderby(visit.encounter.creation, order=Order.desc)
+		.offset(start)
+		.limit(limit)
+		.run(as_dict=True)
 	)
 
 
@@ -87,7 +126,7 @@ def _build_visit(row, load_drawings) -> dict[str, Any] | None:
 		return None
 	return {
 		"encounter": row.name,
-		"encounter_date": row.encounter_date,
+		"visit_date": row.visit_date,
 		"practitioner_name": row.practitioner_name or row.practitioner or "",
 		"drawings": drawings,
 		"assessment": preview,

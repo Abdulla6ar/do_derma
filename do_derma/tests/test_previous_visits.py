@@ -282,3 +282,34 @@ class TestLatestVisit(DermaTestHelpers, IntegrationTestCase):
 		cancelled.cancel()
 
 		self.assertEqual(self._chart(kept)["latest_encounter"], kept.name)
+
+	def _visit_booked(self, booked_days_ago, opened_days_ago):
+		"""An encounter whose appointment date differs from the day the chart opened it."""
+		appointment = frappe.get_doc(
+			{
+				"doctype": "Patient Appointment",
+				"patient": self.patient,
+				"appointment_type": self._get_or_create_appointment_type(),
+				"practitioner": self._get_or_create_practitioner(),
+				"appointment_date": add_days(nowdate(), 1),
+				"appointment_time": "10:00:00",
+				"company": frappe.db.get_value("Company", {}, "name"),
+			}
+		).insert(ignore_permissions=True)
+		# Past bookings are refused on insert, so book tomorrow and backdate it.
+		appointment.db_set("appointment_date", add_days(nowdate(), -booked_days_ago))
+		encounter = self._visit_on(opened_days_ago)
+		encounter.db_set("appointment", appointment.name)
+		return encounter
+
+	def test_the_appointment_date_orders_visits_not_the_day_the_chart_opened_them(self):
+		"""An old appointment opened today must not outrank a newer appointment opened earlier."""
+		booked_recently = self._visit_booked(booked_days_ago=50, opened_days_ago=4)
+		booked_long_ago = self._visit_booked(booked_days_ago=180, opened_days_ago=0)
+
+		chart = self._chart(booked_recently)
+
+		self.assertEqual(chart["latest_encounter"], booked_recently.name)
+		self.assertEqual(str(chart["visit_date"]), add_days(nowdate(), -50))
+		self.assertEqual(previous_visits.get_latest_encounter(self.patient), booked_recently.name)
+		self.assertNotEqual(booked_long_ago.name, chart["latest_encounter"])

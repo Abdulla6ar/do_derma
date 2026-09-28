@@ -2574,6 +2574,7 @@ def get_patient_derma_chart(
 		"settings": get_feature_toggles(),
 		"context_errors": context_errors,
 		"latest_encounter": previous_visits.get_latest_encounter(patient) if patient else None,
+		**_get_visit_moment_fields(encounter_id),
 		"permissions": {
 			"can_reopen_encounter": bool(encounter_id)
 			and bool(frappe.has_permission("Patient Encounter", "cancel", doc=encounter_id)),
@@ -4646,6 +4647,13 @@ def get_previous_visits(patient: str, current_encounter: str | None = None, star
 	)
 
 
+def _get_visit_moment_fields(encounter: str | None) -> dict[str, Any]:
+	if not encounter:
+		return {"visit_date": None, "visit_time": None}
+	moment = previous_visits.get_visit_moment(encounter)
+	return {"visit_date": moment.visit_date, "visit_time": moment.visit_time}
+
+
 @frappe.whitelist()
 def get_visit_summary(encounter: str):
 	_ensure_clinical_access()
@@ -4656,7 +4664,7 @@ def get_visit_summary(encounter: str):
 		frappe.throw(_("Patient Encounter {0} is cancelled.").format(encounter), frappe.ValidationError)
 	return {
 		"encounter": doc.name,
-		"encounter_date": doc.encounter_date,
+		"visit_date": previous_visits.get_visit_moment(doc.name).visit_date,
 		"practitioner_name": doc.practitioner_name or doc.practitioner or "",
 		"mode_label": _(assessment.MODE_LABELS[assessment.get_assessment_mode(doc)]),
 		"assessment": assessment.get_summary(doc),

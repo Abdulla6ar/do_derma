@@ -120,6 +120,9 @@ const props = defineProps({
   reopening: { type: Boolean, default: false },
   alerts: { type: Array, default: () => [] },
   latestEncounter: { type: String, default: "" },
+  // The appointment's date and time when the visit has one; the encounter is dated when the chart opened it.
+  visitDate: { type: String, default: "" },
+  visitTime: { type: String, default: "" },
 })
 
 defineEmits(["complete", "reopen", "open-latest", "alert-action"])
@@ -127,8 +130,10 @@ defineEmits(["complete", "reopen", "open-latest", "alert-action"])
 const isCompleted = computed(() => Number(props.encounter.docstatus) === 1)
 const isLatest = computed(() => !props.latestEncounter || props.latestEncounter === props.encounter.name)
 const visitWhen = computed(() => {
-  const date = window.frappe?.datetime?.str_to_user?.(props.encounter.encounter_date) || props.encounter.encounter_date || ""
-  const time = String(props.encounter.encounter_time || "").slice(0, 5)
+  const date = window.frappe?.datetime?.str_to_user?.(props.visitDate) || props.visitDate
+  // Frappe sends times as "7:15:15.9": pad the hour, drop the seconds.
+  const [hour = "", minute = ""] = props.visitTime.split(":")
+  const time = hour && minute ? `${hour.padStart(2, "0")}:${minute}` : ""
   return [date, time].filter(Boolean).join(" · ")
 })
 const patientName = computed(() => props.patient.patient_name || props.patient.name || __("Patient"))

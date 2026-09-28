@@ -13,7 +13,7 @@
     </header>
     <article v-for="visit in visits" :key="visit.encounter" class="previous-visit" data-test="previous-visit">
       <header>
-        <b>{{ formatDate(visit.encounter_date) }}</b>
+        <b>{{ formatDate(visit.visit_date) }}</b>
         <small>{{ visit.practitioner_name }}</small>
         <button
           type="button"

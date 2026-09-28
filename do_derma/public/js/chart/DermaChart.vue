@@ -45,6 +45,8 @@
         :reopening="reopeningSession"
         :alerts="encounterAlertItems"
         :latest-encounter="data.latest_encounter || ''"
+        :visit-date="data.visit_date || ''"
+        :visit-time="data.visit_time || ''"
         @complete="completeSession"
         @reopen="reopenSession"
         @open-latest="openLatestVisit"

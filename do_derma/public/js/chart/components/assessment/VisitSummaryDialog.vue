@@ -122,7 +122,7 @@ let requestId = 0
 
 const title = computed(() =>
   summary.value
-    ? __("Visit Summary · {0}").replace("{0}", props.formatDate(summary.value.encounter_date))
+    ? __("Visit Summary · {0}").replace("{0}", props.formatDate(summary.value.visit_date))
     : __("Visit Summary")
 )
 
