@@ -41,8 +41,15 @@
         :has-session-context="hasSessionContext"
         :completing="completingSession"
         :pending="completionPending"
+        :can-reopen="Boolean(reopenPermissions.can_reopen_encounter)"
+        :reopening="reopeningSession"
         :alerts="encounterAlertItems"
+        :latest-encounter="data.latest_encounter || ''"
+        :visit-date="data.visit_date || ''"
+        :visit-time="data.visit_time || ''"
         @complete="completeSession"
+        @reopen="reopenSession"
+        @open-latest="openLatestVisit"
         @alert-action="handleEncounterAlert"
       />
 
@@ -155,7 +162,14 @@
                       <strong>{{ __("Drawings") }}</strong>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
-                    <button type="button" class="primary small" data-test="annotate-consultation" :disabled="annotationStudioBusy" @click="openAnnotationStudio({ annotation: null })">
+                    <button
+                      type="button"
+                      class="primary small"
+                      data-test="annotate-consultation"
+                      :disabled="annotationStudioBusy || isEncounterLocked"
+                      :title="isEncounterLocked ? __('Reopen the encounter to draw.') : ''"
+                      @click="openAnnotationStudio({ annotation: null })"
+                    >
                       <span v-if="annotationStudioBusy" class="chart-spinner" aria-hidden="true"></span>
                       <span v-else aria-hidden="true">✎</span>
                       {{ annotationStudioBusy ? __("Opening...") : __("Annotate Consultation") }}
@@ -178,7 +192,7 @@
                         <small>{{ formatDate(annotation.creation || annotation.modified) }}</small>
                       </button>
                       <button
-                        v-if="isResumableAnnotation(annotation)"
+                        v-if="isResumableAnnotation(annotation) && !isEncounterLocked"
                         type="button"
                         class="chart-annotation-edit"
                         data-test="annotation-resume"
@@ -204,6 +218,14 @@
                   </div>
                   <p v-else class="panel-muted">{{ __("Saved encounter drawings will appear here.") }}</p>
                 </section>
+                <PreviousVisitsPanel
+                  :patient="patient.name || ''"
+                  :current-encounter="encounter.name || ''"
+                  :preview-of="annotationPreview"
+                  :label-of="annotationTemplateLabel"
+                  :format-date="formatDate"
+                  @open-drawing="openAnnotationHistory"
+                />
               </section>
             </div>
           </template>
@@ -229,12 +251,14 @@
                 :previous-mark-count="lastVisitMarks.length"
                 :enable-lab-cases="!!featureToggles.enable_lab_cases"
                 :enable-billing-sync="!!featureToggles.enable_billing_sync"
+                :can-reopen="Boolean(reopenPermissions.can_reopen_procedure)"
                 @refresh="refresh"
                 @annotate-procedure="annotateProcedure"
                 @edit-procedure-variables="editProcedureVariables"
                 @sync-billables="syncBillablesForSession"
                 @new-procedure="createProcedure"
                 @copy-marks="copyMarksFromLastVisit"
+                @reopen-procedure="reopenProcedure"
               />
             </div>
           </template>
@@ -580,6 +604,7 @@ import { computed, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import VoiceScribe from "./components/assessment/VoiceScribe.vue"
+import PreviousVisitsPanel from "./components/assessment/PreviousVisitsPanel.vue"
 import AiDocumentsCard from "./components/review/AiDocumentsCard.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
@@ -674,6 +699,10 @@ const { isBroken, markBroken } = useBrokenImages()
 // A completion the clinician has started but not yet confirmed. Guards re-entry without
 // claiming the button's busy label.
 const completionPending = ref(false)
+// Same shape as completionPending: claims a reopen before its reason dialog, so a second
+// click while the dialog is open can't open a second one.
+const reopenPending = ref(false)
+const reopeningSession = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
 const selectedBodyTemplate = ref(null)
@@ -754,6 +783,7 @@ const patient = computed(() => data.value.patient || {})
 const appointment = computed(() => data.value.appointment || {})
 const encounter = computed(() => data.value.encounter || {})
 const isEncounterLocked = computed(() => Number(encounter.value.docstatus ?? 0) !== 0)
+const reopenPermissions = computed(() => data.value.permissions || {})
 const procedureTemplates = computed(() => data.value.procedure_templates || [])
 const procedures = computed(() => data.value.procedures || [])
 const bodyTemplates = computed(() => (data.value.body_templates || []).map(normalizeBodyTemplate))
@@ -1684,6 +1714,7 @@ async function loadAnnotationStudio() {
 }
 
 async function openAnnotationStudio(anchor = {}) {
+  if (isEncounterLocked.value) return
   if (!encounter.value.name) {
     frappe.msgprint(__("A Patient Encounter is required before saving annotation."))
     return
@@ -1734,10 +1765,8 @@ async function openAnnotationStudio(anchor = {}) {
 }
 
 /**
- * Only ever resume a drawing that belongs to this anchor. `encounter_annotations` falls back to
- * the patient's previous visits when this encounter has none (api.py `_load_derma_annotation_context`),
- * which is what the Previous Annotations strip wants and what resume must never accept - saving
- * with that annotation_name would overwrite the earlier visit's drawing.
+ * Only ever resume a drawing that belongs to this anchor: saving with another visit's
+ * annotation_name would overwrite that visit's drawing.
  */
 function latestAnnotationForAnchor(clinicalProcedure) {
   if (clinicalProcedure) return (procedureAnnotations.value[clinicalProcedure] || [])[0] || null
@@ -1745,8 +1774,7 @@ function latestAnnotationForAnchor(clinicalProcedure) {
 }
 
 /**
- * Same guard, applied per row: the strip also lists earlier visits' drawings, and resuming one
- * would overwrite it on save. Those stay review-only.
+ * Same guard, applied per row: a drawing from another anchor stays review-only.
  */
 function isResumableAnnotation(annotation) {
   return Boolean(annotation?.source_name) && annotation.source_name === encounter.value.name
@@ -2433,6 +2461,69 @@ async function submitSessionCompletion(overrideReason) {
   // Either way the server has the last word on readiness, so re-read it: a refusal
   // means this chart's copy was stale, and the next attempt must prompt on the new one.
   await refresh()
+}
+
+/** The typed reason; resolves null only when the clinician closes the dialog. */
+function askReopenReason(title) {
+  return new Promise((resolve) => {
+    let answered = false
+    const dialog = new frappe.ui.Dialog({
+      title,
+      fields: [{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: 1 }],
+      primary_action_label: __("Reopen"),
+      primary_action({ reason }) {
+        const trimmed = (reason || "").trim()
+        if (!trimmed) return
+        answered = true
+        // Resolve before hiding: onhide is the cancel path and would answer first.
+        resolve(trimmed)
+        dialog.hide()
+      },
+    })
+    dialog.onhide = () => {
+      if (!answered) resolve(null)
+    }
+    dialog.show()
+  })
+}
+
+async function reopenRecord(method, args, title) {
+  if (reopenPending.value) return
+  reopenPending.value = true
+  try {
+    const reason = await askReopenReason(title)
+    if (!reason) return
+    reopeningSession.value = true
+    try {
+      await frappe.call({ method, args: { ...args, reason } })
+      frappe.show_alert({ message: __("Reopened."), indicator: "orange" })
+      await refresh()
+    } catch (err) {
+      frappe.msgprint({ title, message: serverErrorText(err, __("Unable to reopen.")), indicator: "red" })
+    } finally {
+      reopeningSession.value = false
+    }
+  } finally {
+    reopenPending.value = false
+  }
+}
+
+/** Navigates rather than reloading in place, so refresh() keeps returning to the visit on screen. */
+function openLatestVisit() {
+  if (!data.value.latest_encounter) return
+  frappe.route_options = { patient: patient.value.name, encounter: data.value.latest_encounter }
+  frappe.set_route("derma-chart")
+}
+
+function reopenSession() {
+  if (!encounter.value.name) return
+  reopenRecord("do_derma.api.reopen_derma_session", { encounter: encounter.value.name }, __("Reopen Encounter"))
+}
+
+function reopenProcedure(row) {
+  const procedure = row?.clinical_procedure || row?.name
+  if (!procedure) return
+  reopenRecord("do_derma.api.reopen_derma_procedure", { procedure }, __("Reopen Procedure"))
 }
 
 /** What reception needs to hear: what was submitted, what completed, what was billed. */

@@ -1,0 +1,291 @@
+from __future__ import annotations
+
+import json
+from unittest.mock import patch
+
+import frappe
+from frappe.tests import IntegrationTestCase
+from frappe.utils import cstr
+
+import do_derma.api as api
+from do_derma import assessment
+from do_derma.tests.test_api import PIXEL_PNG, DermaTestHelpers
+
+LOCKED = "Reopen it to make changes"
+
+
+class TestEncounterLock(DermaTestHelpers, IntegrationTestCase):
+	"""A completed encounter is read-only for every chart write, whatever the browser shows."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient, docstatus=1)
+
+	def assertLocked(self, call):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			call()
+		self.assertIn(LOCKED, str(caught.exception))
+
+	def _submitted_procedure(self):
+		procedure = self._make_clinical_procedure(self.patient)
+		field = api._get_clinical_procedure_encounter_field()
+		procedure.db_set(field, self.encounter.name)
+		procedure.submit()
+		return procedure
+
+	def test_new_procedure_is_refused(self):
+		self.assertLocked(
+			lambda: api.create_derma_chart_procedure(
+				{
+					"patient": self.patient,
+					"encounter": self.encounter.name,
+					"procedure_template": self._get_or_create_procedure_template(),
+				}
+			)
+		)
+
+	def test_new_mark_is_refused(self):
+		self.assertLocked(lambda: self._save_mark(self.patient, encounter=self.encounter.name))
+
+	def test_carry_forward_is_refused(self):
+		self.assertLocked(
+			lambda: api.carry_forward_marks(["any"], patient=self.patient, encounter=self.encounter.name)
+		)
+
+	def test_assessment_format_change_is_refused(self):
+		self.assertLocked(lambda: api.set_derma_assessment_mode("SOAP", encounter=self.encounter.name))
+
+	def test_prescriptions_are_refused(self):
+		self.assertLocked(lambda: api.set_derma_prescriptions(payload="[]", encounter=self.encounter.name))
+
+	def test_consultation_drawing_is_refused(self):
+		self.assertLocked(
+			lambda: api.save_derma_annotation(
+				{"doctype": "Patient Encounter", "docname": self.encounter.name, "file_data": PIXEL_PNG}
+			)
+		)
+
+	def test_procedure_drawing_is_refused_on_a_submitted_procedure(self):
+		procedure = self._submitted_procedure()
+		self.assertLocked(
+			lambda: api.save_derma_annotation({"clinical_procedure": procedure.name, "file_data": PIXEL_PNG})
+		)
+
+	def test_procedure_variables_are_refused(self):
+		procedure = self._submitted_procedure()
+		self.assertLocked(
+			lambda: api.save_procedure_variables(procedure.name, procedure.procedure_template, "{}")
+		)
+
+	def test_photo_set_is_refused(self):
+		self.assertLocked(
+			lambda: api.create_photo_set(
+				json.dumps({"patient": self.patient, "encounter": self.encounter.name})
+			)
+		)
+
+	def test_consent_is_refused(self):
+		self.assertLocked(
+			lambda: api.create_derma_consent(
+				json.dumps({"patient": self.patient, "encounter": self.encounter.name})
+			)
+		)
+
+	def test_completing_again_is_refused(self):
+		self.assertLocked(
+			lambda: api.complete_derma_session(encounter=self.encounter.name, patient=self.patient)
+		)
+
+	def test_marks_from_a_completed_visit_are_not_discarded(self):
+		draft = self._make_encounter(self.patient)
+		mark = self._save_mark(self.patient, encounter=draft.name)
+		draft.submit()
+		self.assertLocked(lambda: api.discard_chart_marks([mark["name"]]))
+		self.assertLocked(lambda: api.prune_chart_marks([mark["name"]]))
+		self.assertTrue(frappe.db.exists("Derma Chart Mark", mark["name"]))
+
+	def test_procedure_from_a_mark_is_refused(self):
+		mark = frappe.get_doc(
+			{
+				"doctype": "Derma Chart Mark",
+				"patient": self.patient,
+				"encounter": self.encounter.name,
+				"x_percent": 10,
+				"y_percent": 20,
+			}
+		).insert(ignore_permissions=True)
+		self.assertLocked(
+			lambda: api.create_procedure_from_mark(mark.name, self._get_or_create_procedure_template())
+		)
+
+	def test_owning_encounter_of_a_procedure(self):
+		procedure = self._submitted_procedure()
+		self.assertEqual(api._get_owning_encounter("Clinical Procedure", procedure.name), self.encounter.name)
+
+	def test_an_open_encounter_still_takes_writes(self):
+		draft = self._make_encounter(self.patient)
+		mark = self._save_mark(self.patient, encounter=draft.name)
+		self.assertTrue(mark["name"])
+
+
+class TestEditsAfterSubmit(DermaTestHelpers, IntegrationTestCase):
+	"""Fields the clinic allows on submit stay editable; everything else is locked."""
+
+	def _first_field(self, layout, allow_on_submit):
+		for row in layout:
+			if (
+				row.get("is_value_field")
+				and row.get("fieldtype") in {"Data", "Small Text", "Text", "Long Text", "Text Editor"}
+				and bool(row.get("allow_on_submit")) == allow_on_submit
+			):
+				return row["fieldname"]
+		self.skipTest(f"This site's assessment layout has no text field with allow_on_submit={allow_on_submit}.")
+
+	def test_a_locked_assessment_field_is_refused(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		mode = assessment.get_assessment_mode(encounter)
+		field = self._first_field(assessment.get_layout(mode), allow_on_submit=False)
+		with self.assertRaises(frappe.ValidationError):
+			api.set_derma_assessment(payload=json.dumps({field: "changed"}), mode=mode, encounter=encounter.name)
+
+	def test_an_unchanged_assessment_payload_saves(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		mode = assessment.get_assessment_mode(encounter)
+		values = assessment.serialize_values(encounter, assessment.get_layout(mode))
+		api.set_derma_assessment(payload=json.dumps(values, default=str), mode=mode, encounter=encounter.name)
+
+	def test_procedure_notes_stay_editable_after_submit(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		procedure.submit()
+		saved = api.update_clinical_procedure_fields(procedure.name, json.dumps({"notes": "Healed well."}))
+		self.assertEqual(saved["notes"], "Healed well.")
+
+	def test_a_locked_procedure_field_is_refused(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		procedure.submit()
+		with self.assertRaises(frappe.ValidationError):
+			api.update_clinical_procedure_fields(procedure.name, json.dumps({"start_date": "2020-01-01"}))
+
+	def _date_layout(self):
+		"""A locked Date field, independent of this site's own assessment field configuration."""
+		return [{"fieldname": "encounter_date", "fieldtype": "Date", "is_value_field": True, "allow_on_submit": 0}]
+
+	def test_an_unchanged_locked_date_field_saves(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		with patch.object(assessment, "get_layout", return_value=self._date_layout()):
+			api.set_derma_assessment(
+				payload=json.dumps({"encounter_date": cstr(encounter.encounter_date)}),
+				mode="Structured",
+				encounter=encounter.name,
+			)
+
+	def test_a_changed_locked_date_field_is_refused(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		with patch.object(assessment, "get_layout", return_value=self._date_layout()):
+			with self.assertRaises(frappe.ValidationError):
+				api.set_derma_assessment(
+					payload=json.dumps({"encounter_date": "2020-01-01"}), mode="Structured", encounter=encounter.name
+				)
+
+	def test_an_unchanged_locked_table_field_saves(self):
+		"""Same coverage for a Table row: trimmed to its own child fields on both sides before the diff.
+
+		Patient Encounter Symptom's only child field is a Link (`complaint`), so this end-to-end
+		path never exercises a native/JSON type mismatch - see
+		test_normalized_values_casts_table_child_by_fieldtype below for that, against a synthetic
+		layout, since no Table field in this doctype's real schema has a non-Link child column.
+		"""
+		patient = self._make_patient()
+		draft = self._make_encounter(patient)
+		complaint = frappe.get_doc(
+			{"doctype": "Complaint", "complaints": f"Itch {frappe.generate_hash(length=6)}"}
+		).insert(ignore_permissions=True)
+		self.addCleanup(frappe.delete_doc, "Complaint", complaint.name, True)
+		draft.append("symptoms", {"complaint": complaint.name})
+		draft.save(ignore_permissions=True)
+		draft.submit()
+
+		layout = [
+			{
+				"fieldname": "symptoms",
+				"fieldtype": "Table MultiSelect",
+				"is_value_field": True,
+				"allow_on_submit": 0,
+				"fields": assessment.child_table_layout("Patient Encounter Symptom"),
+			}
+		]
+		encounter = frappe.get_doc("Patient Encounter", draft.name)
+		current = assessment.serialize_values(encounter, layout)["symptoms"]
+		with patch.object(assessment, "get_layout", return_value=layout):
+			api.set_derma_assessment(
+				payload=json.dumps({"symptoms": current}, default=str), mode="Structured", encounter=encounter.name
+			)
+
+	def test_normalized_values_casts_table_child_by_fieldtype(self):
+		"""A Table child's own fieldtype is cast on both sides, not just stringified.
+
+		A Float child is the case that a blanket `cstr` gets wrong: the doc-native `1.0` and its
+		JSON twin `1` stringify to "1.0" and "1" - different - unless each side is cast to Float
+		first. An Int child would not catch this (`cstr(1) == cstr("1")` already).
+		"""
+		layout = [
+			{
+				"fieldname": "readings",
+				"fieldtype": "Table",
+				"is_value_field": True,
+				"allow_on_submit": 0,
+				"fields": [{"fieldname": "score", "fieldtype": "Float"}],
+			}
+		]
+		native = assessment.normalized_values({"readings": [{"score": 1.0}]}, layout)
+		as_json = assessment.normalized_values({"readings": [{"score": "1"}]}, layout)
+		changed = assessment.normalized_values({"readings": [{"score": "2"}]}, layout)
+		self.assertEqual(native, as_json)
+		self.assertNotEqual(native, changed)
+
+	def _float_layout(self):
+		"""A locked Float field, faked on Patient Encounter's cached meta - not a real column.
+
+		Patient Encounter has no real Float/Int/Currency field to reuse, and adding one via a
+		real Custom Field in a test is unsafe: Custom Field insert runs an ALTER TABLE, which
+		implicitly commits in MySQL and broke this test framework's per-test rollback when
+		tried - it leaked the column and the Custom Field row straight past `addCleanup` and
+		had to be dropped by hand. `_ensure_changes_allowed_on_submit` also needs the field to
+		pass `doc.meta.has_field(...)`, which a bare layout dict alone cannot satisfy, so the
+		cached Meta's `_fields` lookup (shared by every `doc.meta` access in this process -
+		verified) gets the fake DocField instead, in memory only, popped back out by
+		`addCleanup`. `get_valid_columns()` reads `meta.fields` (a different attribute), not
+		`_fields`, so this never makes Frappe try to load or save a column that does not exist.
+		"""
+		fieldname = "custom_derma_test_score"
+		meta = frappe.get_meta("Patient Encounter")
+		meta._fields[fieldname] = frappe._dict(
+			{"fieldname": fieldname, "fieldtype": "Float", "allow_on_submit": 0, "label": "Derma Test Score"}
+		)
+		self.addCleanup(meta._fields.pop, fieldname, None)
+		return [{"fieldname": fieldname, "fieldtype": "Float", "is_value_field": True, "allow_on_submit": 0}]
+
+	def test_an_unchanged_locked_float_field_saves(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		layout = self._float_layout()
+		with (
+			patch.object(assessment, "get_layout", return_value=layout),
+			patch.object(assessment, "serialize_values", return_value={"custom_derma_test_score": 1.0}),
+		):
+			api.set_derma_assessment(
+				payload=json.dumps({"custom_derma_test_score": "1"}), mode="Structured", encounter=encounter.name
+			)
+
+	def test_a_changed_locked_float_field_is_refused(self):
+		encounter = self._make_encounter(self._make_patient(), docstatus=1)
+		layout = self._float_layout()
+		with (
+			patch.object(assessment, "get_layout", return_value=layout),
+			patch.object(assessment, "serialize_values", return_value={"custom_derma_test_score": 1.0}),
+		):
+			with self.assertRaises(frappe.ValidationError):
+				api.set_derma_assessment(
+					payload=json.dumps({"custom_derma_test_score": "2"}), mode="Structured", encounter=encounter.name
+				)

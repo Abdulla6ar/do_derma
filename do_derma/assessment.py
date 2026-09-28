@@ -9,7 +9,8 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cint, cstr
+from frappe.utils import cast, cint, cstr, strip_html
+from frappe.utils.html_utils import unescape_html
 
 from do_derma.settings import SETTINGS_DOCTYPE, get_settings_doc
 
@@ -182,6 +183,38 @@ def serialize_values(encounter_doc, layout: list[dict[str, Any]]) -> dict[str, A
 	return values
 
 
+def normalized_values(values: dict[str, Any], layout: list[dict[str, Any]]) -> dict[str, Any]:
+	"""Values in one comparable form, so a native doc value and its raw JSON twin compare equal.
+
+	Each value is cast to its own field's Python type first - the rule `BaseDocument.cast` uses -
+	so a Float `1.0` and its JSON `1` land on one value instead of `"1.0" != "1"`, then stringified
+	for a simple diff. Table rows are trimmed to the row's own child fields, like `serialize_values`
+	does, with each child value cast by its own child fieldtype the same way.
+	"""
+	field_map = {row["fieldname"]: row for row in layout if row.get("fieldname")}
+	normalized = {}
+	for fieldname, value in values.items():
+		row = field_map.get(fieldname)
+		if row and row.get("fieldtype") in TABLE_FIELD_TYPES:
+			child_types = {
+				field["fieldname"]: field.get("fieldtype")
+				for field in row.get("fields") or []
+				if field.get("fieldname")
+			}
+			normalized[fieldname] = [
+				{key: _cast_str(child.get(key), child_types[key]) for key in child_types if key in child}
+				for child in (value or [])
+				if isinstance(child, dict)
+			]
+		else:
+			normalized[fieldname] = _cast_str(value, row.get("fieldtype") if row else None)
+	return normalized
+
+
+def _cast_str(value: Any, fieldtype: str | None) -> str:
+	return cstr(cast(fieldtype, value))
+
+
 def read_assessment(encounter_doc) -> dict[str, Any]:
 	"""The full assessment payload for one encounter, in both modes."""
 	mode = get_assessment_mode(encounter_doc)
@@ -219,6 +252,67 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 			"practitioner": encounter_doc.get("practitioner"),
 		},
 	}
+
+
+def get_preview(encounter_doc) -> list[dict[str, str]]:
+	"""The documented format's filled fields as label and plain text."""
+	layout = get_layout(get_assessment_mode(encounter_doc))
+	values = serialize_values(encounter_doc, layout)
+	preview = []
+	for row in layout:
+		text = _preview_text(row, values.get(row.get("fieldname")))
+		if text:
+			preview.append({"label": _(row.get("label") or row.get("fieldname")), "value": text})
+	return preview
+
+
+def get_summary(encounter_doc) -> list[dict[str, Any]]:
+	"""The documented format's filled fields; a table field lists its filled rows."""
+	layout = get_layout(get_assessment_mode(encounter_doc))
+	values = serialize_values(encounter_doc, layout)
+	summary = []
+	for row in layout:
+		label = _(row.get("label") or row.get("fieldname"))
+		value = values.get(row.get("fieldname"))
+		if row.get("fieldtype") in TABLE_FIELD_TYPES:
+			rows = get_table_rows(row, value)
+			if rows:
+				summary.append({"label": label, "rows": rows})
+		elif text := get_field_text(row.get("fieldtype"), value):
+			summary.append({"label": label, "value": text})
+	return summary
+
+
+def get_table_rows(row: dict[str, Any], value: Any) -> list[list[dict[str, str]]]:
+	"""Each child row as label and text pairs for its filled fields; empty rows are dropped."""
+	fields = [field for field in row.get("fields") or [] if field.get("fieldname")]
+	rows = []
+	for child in value or []:
+		pairs = [
+			{"label": _(field.get("label") or field["fieldname"]), "value": text}
+			for field in fields
+			if (text := get_field_text(field.get("fieldtype"), child.get(field["fieldname"])))
+		]
+		if pairs:
+			rows.append(pairs)
+	return rows
+
+
+def _preview_text(row: dict[str, Any], value: Any) -> str:
+	if row.get("fieldtype") in TABLE_FIELD_TYPES:
+		return _("{0} row(s)").format(len(value)) if value else ""
+	return get_field_text(row.get("fieldtype"), value)
+
+
+def get_field_text(fieldtype: str | None, value: Any) -> str:
+	if fieldtype == "Check":
+		return _("Yes") if cint(value) else ""
+	return get_plain_text(value)
+
+
+def get_plain_text(value: Any) -> str:
+	"""Editor markup and entities stripped, so `<p>&nbsp;</p>` reads as empty."""
+	return unescape_html(strip_html(cstr(value or ""))).strip()
 
 
 def empty_assessment() -> dict[str, Any]:

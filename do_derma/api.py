@@ -8,10 +8,10 @@ from typing import Any
 import frappe
 from do_health.api.appointment_methods import create_encounter_for_appointment
 from frappe import _
-from frappe.utils import cint, flt, now_datetime, nowdate
+from frappe.utils import cint, cstr, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
-from do_derma import assessment, voice
+from do_derma import assessment, previous_visits, reopen, voice
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.config.marker_size import (
 	MARK_SIZE_FIELD,
@@ -362,10 +362,18 @@ def _get_visit_context(
 ) -> dict[str, Any]:
 	if encounter:
 		encounter_doc = frappe.get_doc("Patient Encounter", encounter)
+		if patient and patient != encounter_doc.patient:
+			frappe.throw(
+				_("Encounter {0} belongs to a different patient.").format(encounter), frappe.ValidationError
+			)
 		patient = patient or encounter_doc.patient
 		appointment = appointment or encounter_doc.appointment
 	elif appointment:
 		appointment_doc = frappe.get_doc("Patient Appointment", appointment)
+		if patient and patient != appointment_doc.patient:
+			frappe.throw(
+				_("Appointment {0} belongs to a different patient.").format(appointment), frappe.ValidationError
+			)
 		patient = patient or appointment_doc.patient
 		encounter = _ensure_encounter(appointment=appointment, patient=patient)
 	elif patient:
@@ -1569,6 +1577,7 @@ def save_procedure_variables(
 	_ensure_clinical_access()
 	if not clinical_procedure or not frappe.db.exists("Clinical Procedure", clinical_procedure):
 		frappe.throw(_("Clinical Procedure not found."))
+	_ensure_owner_open("Clinical Procedure", clinical_procedure)
 	if not procedure_template or not frappe.db.exists("Clinical Procedure Template", procedure_template):
 		frappe.throw(_("Clinical Procedure Template not found."))
 	if not _has_procedure_variables():
@@ -1601,7 +1610,6 @@ def save_procedure_variables(
 				"value": _stringify_variable_value(value),
 			},
 		)
-	# A submitted procedure still takes these, the same way it still takes a drawing.
 	doc.flags.ignore_mandatory = True
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save(ignore_permissions=True)
@@ -1664,6 +1672,7 @@ def _get_derma_procedures(
 		"Clinical Procedure",
 		[
 			"name",
+			"docstatus",
 			"patient",
 			"appointment",
 			"procedure_template",
@@ -2051,37 +2060,10 @@ def _hydrate_photo_sets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	return rows
 
 
-def _load_annotation_history(
-	encounter: str | None = None, patient: str | None = None
-) -> list[dict[str, Any]]:
-	rows: list[dict[str, Any]] = []
-	if encounter:
-		rows = _load_annotations_for_parents([("Patient Encounter", encounter)])
-
-	if not rows and patient:
-		encounters = frappe.get_all(
-			"Patient Encounter", filters={"patient": patient}, fields=["name"], limit=20
-		)
-		parents = [("Patient Encounter", row.name) for row in encounters]
-		rows = _load_annotations_for_parents(parents)
-
-	seen = set()
-	unique = []
-	for row in rows:
-		name = row.get("name")
-		if not name or name in seen:
-			continue
-		seen.add(name)
-		unique.append(row)
-	unique.sort(key=lambda row: row.get("creation") or "", reverse=True)
-	return unique
-
-
 def _load_derma_annotation_context(
-	encounter: str | None = None,
-	patient: str | None = None,
-	procedure_names: list[str] | None = None,
+	encounter: str | None = None, procedure_names: list[str] | None = None
 ) -> dict[str, Any]:
+	"""This encounter's drawings and its procedures', never another visit's."""
 	procedure_names = [name for name in (procedure_names or []) if name]
 	parents: list[tuple[str, str]] = []
 	if encounter:
@@ -2089,8 +2071,6 @@ def _load_derma_annotation_context(
 	parents.extend(("Clinical Procedure", name) for name in procedure_names)
 
 	rows = _load_annotations_for_parents(parents)
-	if not rows:
-		rows = _load_annotation_history(encounter=encounter, patient=patient)
 
 	encounter_annotations = [
 		row
@@ -2233,6 +2213,25 @@ def _validate_prescription_rows(rows: list[dict[str, Any]]) -> None:
 				_("Row {0}: repeats must be between 0 and {1}.").format(index, MAX_PRESCRIPTION_REPEATS),
 				frappe.ValidationError,
 			)
+
+
+def _merge_ordered_prescriptions(
+	existing: list[dict[str, Any]], incoming: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+	"""Rows already ordered as a Medication Request are kept as stored, ahead of the new ones."""
+	ordered = [row for row in existing if row.get("medication_request")]
+	known = {row["medication_request"] for row in ordered}
+	fresh = []
+	for row in incoming:
+		request = row.get("medication_request")
+		if request and request not in known:
+			frappe.throw(
+				_("Medication Request {0} does not belong to this encounter.").format(request),
+				frappe.ValidationError,
+			)
+		if not request:
+			fresh.append(row)
+	return [*ordered, *fresh]
 
 
 def _drug_prescription_rows(encounter_doc) -> list[dict[str, Any]]:
@@ -2469,6 +2468,17 @@ def get_session_readiness(
 	return readiness_session.get_session_readiness(patient, appointment=appointment, encounter=encounter)
 
 
+def _add_submitted_invoices(procedures: list[dict[str, Any]]) -> None:
+	"""Stamp each procedure row with the Sales Invoice that bills it, or an empty string."""
+	for row in procedures:
+		row.setdefault("submitted_invoice", "")
+	invoices = reopen.get_submitted_invoices(
+		[row.get("clinical_procedure") or row.get("name") for row in procedures if row.get("name")]
+	)
+	for row in procedures:
+		row["submitted_invoice"] = invoices.get(row.get("clinical_procedure") or row.get("name"), "")
+
+
 @frappe.whitelist()
 def get_patient_derma_chart(
 	patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None
@@ -2490,6 +2500,7 @@ def get_patient_derma_chart(
 		[],
 		lambda: _get_derma_procedures(patient, appointment=appointment_id, encounter=encounter_id),
 	)
+	section("submitted invoices", None, lambda: _add_submitted_invoices(procedures))
 	annotation_context = section(
 		"annotations",
 		{
@@ -2500,7 +2511,6 @@ def get_patient_derma_chart(
 		},
 		lambda: _load_derma_annotation_context(
 			encounter=encounter_id,
-			patient=patient,
 			procedure_names=[row.get("name") for row in procedures],
 		),
 	)
@@ -2563,6 +2573,13 @@ def get_patient_derma_chart(
 		),
 		"settings": get_feature_toggles(),
 		"context_errors": context_errors,
+		"latest_encounter": previous_visits.get_latest_encounter(patient) if patient else None,
+		**_get_visit_moment_fields(encounter_id),
+		"permissions": {
+			"can_reopen_encounter": bool(encounter_id)
+			and bool(frappe.has_permission("Patient Encounter", "cancel", doc=encounter_id)),
+			"can_reopen_procedure": bool(frappe.has_permission("Clinical Procedure", "cancel")),
+		},
 	}
 
 
@@ -2581,6 +2598,7 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 		frappe.throw(_("Clinical Procedure Template is required."))
 
 	encounter_doc = frappe.get_doc("Patient Encounter", encounter)
+	_ensure_encounter_open(encounter)
 	appointment = values.get("appointment") or encounter_doc.get("appointment")
 	template_doc = frappe.get_doc("Clinical Procedure Template", procedure_template)
 	procedure = frappe.new_doc("Clinical Procedure")
@@ -2800,14 +2818,10 @@ def _append_body_template_note(notes: str | None, values: dict[str, Any]) -> str
 
 
 @frappe.whitelist()
-def get_derma_annotations(
-	encounter: str | None = None, patient: str | None = None, clinical_procedure: str | None = None
-):
+def get_derma_annotations(encounter: str | None = None, clinical_procedure: str | None = None):
 	_ensure_clinical_access()
 	procedure_names = [clinical_procedure] if clinical_procedure else []
-	return _load_derma_annotation_context(
-		encounter=encounter, patient=patient, procedure_names=procedure_names
-	)
+	return _load_derma_annotation_context(encounter=encounter, procedure_names=procedure_names)
 
 
 ANNOTATION_SUMMARY_PARENTS = ("Patient Encounter", "Clinical Procedure")
@@ -3050,6 +3064,7 @@ def delete_derma_annotation(annotation_name: str, doctype: str, docname: str):
 		frappe.throw(_("Annotation not found."))
 	if not docname or not frappe.db.exists(doctype, docname):
 		frappe.throw(_("{0} not found.").format(doctype))
+	_ensure_owner_open(doctype, docname)
 
 	frappe.db.delete(
 		"Health Annotation Table",
@@ -3076,6 +3091,7 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	docname = values.get("docname") or clinical_procedure or values.get("encounter")
 	if not docname:
 		frappe.throw(_("Encounter is required."))
+	_ensure_owner_open(doctype, docname)
 	if not values.get("file_data"):
 		frappe.throw(_("Drawing image data is required."))
 	json_text = values.get("json_text") or ""
@@ -3138,7 +3154,6 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 
 	context = _load_derma_annotation_context(
 		encounter=values.get("encounter") or (docname if doctype == "Patient Encounter" else None),
-		patient=patient,
 		procedure_names=[clinical_procedure or docname] if doctype == "Clinical Procedure" else [],
 	)
 	if doctype == "Clinical Procedure":
@@ -3240,7 +3255,16 @@ def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=No
 	if not encounter_doc:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
 
+	layout = assessment.get_layout(assessment.normalize_mode(mode) or assessment.get_assessment_mode(encounter_doc))
+	before = assessment.serialize_values(encounter_doc, layout)
 	assessment.apply_assessment(encounter_doc, values, mode=mode)
+	# apply_assessment already drops any field it cannot write on a submitted encounter, so the
+	# doc state never shows a blocked attempt. Diff the raw request instead of the saved fields,
+	# in the same comparable form as `before` - a native Date and its JSON string twin must match.
+	attempted = {fieldname: value for fieldname, value in values.items() if fieldname in before}
+	_ensure_changes_allowed_on_submit(
+		encounter_doc, assessment.normalized_values(before, layout), assessment.normalized_values(attempted, layout)
+	)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
 	return get_derma_assessment(encounter=encounter_doc.name)
@@ -3300,6 +3324,7 @@ def set_derma_assessment_mode(mode, encounter=None, appointment=None, patient=No
 	)
 	if not encounter_doc:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
+	_ensure_encounter_open(encounter_doc.name)
 
 	assessment.stamp_mode(encounter_doc, mode)
 	encounter_doc.save(ignore_permissions=True)
@@ -3331,13 +3356,12 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 	)
 	if not encounter_doc:
 		return {"encounter": "", "drug_prescription": []}
-	if cint(encounter_doc.docstatus) == 2:
-		frappe.throw(_("Cancelled encounters cannot be edited."))
+	_ensure_encounter_open(encounter_doc.name)
 	allowed = _drug_prescription_fields()
 	prescriptions = [_drug_prescription_row(row, allowed) for row in rows if isinstance(row, dict)]
 	_validate_prescription_rows(prescriptions)
+	prescriptions = _merge_ordered_prescriptions(_drug_prescription_rows(encounter_doc), prescriptions)
 	encounter_doc.set("drug_prescription", prescriptions)
-	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
 	return {"encounter": encounter_doc.name, "drug_prescription": _drug_prescription_rows(encounter_doc)}
 
@@ -3397,6 +3421,7 @@ def create_derma_consent(payload=None):
 		frappe.throw(_("Patient is required."), frappe.ValidationError)
 	if not encounter:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
+	_ensure_encounter_open(encounter)
 
 	doctype = "Encounter Consent" if _has_doctype("Encounter Consent") else "Consent Form"
 	if not _has_doctype(doctype):
@@ -3567,6 +3592,7 @@ def update_clinical_procedure_fields(procedure_name: str, updates=None):
 	doc = frappe.get_doc("Clinical Procedure", procedure_name)
 	if not doc.has_permission("write"):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	before = {fieldname: doc.get(fieldname) for fieldname in values}
 	for fieldname, value in values.items():
 		if fieldname in {"name", "doctype", "docstatus"}:
 			continue
@@ -3574,6 +3600,10 @@ def update_clinical_procedure_fields(procedure_name: str, updates=None):
 			# Skipping would hand the chart a success it did not earn and lose the edit.
 			frappe.throw(_("Clinical Procedure has no field {0}.").format(fieldname), frappe.ValidationError)
 		doc.set(fieldname, value)
+	if cint(doc.docstatus):
+		_ensure_changes_allowed_on_submit(doc, before, {fieldname: doc.get(fieldname) for fieldname in values})
+	else:
+		_ensure_encounter_open(_get_owning_encounter("Clinical Procedure", doc.name))
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save(ignore_permissions=True)
 	return doc.as_dict()
@@ -3609,6 +3639,7 @@ def sync_derma_billables(
 	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
 	appointment_id = context["appointment_id"]
 	encounter_id = context["encounter_id"]
+	_ensure_encounter_open(encounter_id)
 	if not appointment_id:
 		frappe.throw(_("An appointment is required to sync billing."))
 	filters = _clinical_procedure_context_filters(
@@ -3643,7 +3674,9 @@ def _complete_derma_procedures_for_session(patient: str, encounter: str) -> dict
 			doc = frappe.get_doc("Clinical Procedure", name)
 			if not doc.has_permission("submit"):
 				frappe.throw(_("Not permitted"), frappe.PermissionError)
+			before = reopen.get_nursing_tasks(name)
 			doc.submit()
+			reopen.drop_repeated_nursing_tasks(name, before)
 			if _has_field("Clinical Procedure", "status"):
 				doc.db_set("status", "Completed", update_modified=True)
 			completed.append(name)
@@ -3669,6 +3702,7 @@ def complete_derma_session(
 	patient_id = context["patient_id"]
 	if not encounter_id:
 		frappe.throw(_("No encounter found for this session."))
+	_ensure_encounter_open(encounter_id)
 
 	readiness = get_session_readiness(patient_id, appointment=appointment_id, encounter=encounter_id)
 	_gate_session_completion(readiness, encounter_id, override_reason)
@@ -3701,6 +3735,42 @@ def complete_derma_session(
 		"invoice_error": invoice_error,
 		"readiness": readiness,
 	}
+
+
+@frappe.whitelist()
+def reopen_derma_session(encounter: str, reason: str | None = None):
+	"""Put a completed visit back to draft. Procedures, invoices and orders stay submitted."""
+	_ensure_clinical_access()
+	doc = frappe.get_doc("Patient Encounter", encounter)
+	reopen.ensure_can_reopen(doc)
+	reopen.ensure_no_therapy_plan(doc.name)
+	reopen.reopen_document(doc, reason, status="Open")
+	return {"encounter": doc.name, "docstatus": 0}
+
+
+@frappe.whitelist()
+def reopen_derma_procedure(procedure: str, reason: str | None = None):
+	"""Put one completed procedure back to draft inside a reopened visit."""
+	_ensure_clinical_access()
+	doc = frappe.get_doc("Clinical Procedure", procedure)
+	encounter = _get_owning_encounter("Clinical Procedure", doc.name)
+	if not encounter:
+		frappe.throw(
+			_("Procedure {0} is not linked to a visit, so it cannot be reopened here.").format(doc.name),
+			frappe.ValidationError,
+		)
+	_ensure_encounter_open(encounter)
+	reopen.ensure_can_reopen(doc)
+	invoice = reopen.get_submitted_invoices([doc.name]).get(doc.name)
+	if invoice:
+		frappe.throw(
+			_("Procedure {0} is billed on submitted invoice {1}. Cancel the invoice first.").format(
+				doc.name, invoice
+			),
+			frappe.ValidationError,
+		)
+	reopen.reopen_document(doc, reason, status="In Progress")
+	return {"procedure": doc.name, "docstatus": 0}
 
 
 def _drop_uninstalled_app_messages() -> None:
@@ -3831,6 +3901,11 @@ def save_chart_mark(values: str | dict[str, Any]):
 			"Patient Encounter", payload.get("encounter"), "appointment"
 		)
 
+	if name:
+		_ensure_owner_open("Derma Chart Mark", name)
+	_ensure_encounter_open(payload.get("encounter"))
+	_ensure_owner_open("Clinical Procedure", payload.get("clinical_procedure"))
+
 	_normalize_position(payload)
 	if MARK_SIZE_FIELD in payload:
 		payload[MARK_SIZE_FIELD] = validated_marker_size(payload[MARK_SIZE_FIELD])
@@ -3919,8 +3994,51 @@ def _ensure_encounter_open(encounter: str | None) -> None:
 	"""A closed encounter is read-only on the chart; a stale tab must not write past it."""
 	if not encounter:
 		return
-	if cint(frappe.db.get_value("Patient Encounter", encounter, "docstatus")) != 0:
-		frappe.throw(_("This encounter is closed and can no longer be edited."))
+	docstatus = cint(frappe.db.get_value("Patient Encounter", encounter, "docstatus"))
+	if docstatus == 1:
+		frappe.throw(_("This encounter is completed. Reopen it to make changes."), frappe.ValidationError)
+	if docstatus == 2:
+		frappe.throw(_("This encounter is cancelled and can no longer be edited."), frappe.ValidationError)
+
+
+def _get_owning_encounter(doctype: str, name: str | None) -> str | None:
+	if not name:
+		return None
+	if doctype == "Patient Encounter":
+		return name
+	if doctype == "Clinical Procedure":
+		field = _get_clinical_procedure_encounter_field()
+		return frappe.db.get_value(doctype, name, field) if field else None
+	return frappe.db.get_value(doctype, name, "encounter")
+
+
+def _ensure_owner_open(doctype: str, name: str | None) -> None:
+	"""A procedure, or a mark placed on one, must be a draft itself as well as sit in an open encounter."""
+	procedure = name if doctype == "Clinical Procedure" else None
+	if doctype == "Derma Chart Mark" and name:
+		procedure = frappe.db.get_value(doctype, name, "clinical_procedure")
+	if procedure and cint(frappe.db.get_value("Clinical Procedure", procedure, "docstatus")):
+		frappe.throw(_("This procedure is completed. Reopen it to make changes."), frappe.ValidationError)
+	_ensure_encounter_open(_get_owning_encounter(doctype, name))
+
+
+def _ensure_changes_allowed_on_submit(doc, before: dict[str, Any], after: dict[str, Any]) -> None:
+	"""A submitted document may change only the fields Frappe allows on submit."""
+	if not cint(doc.docstatus):
+		return
+	locked = [
+		fieldname
+		for fieldname, value in after.items()
+		if value != before.get(fieldname)
+		and doc.meta.has_field(fieldname)
+		and not doc.meta.get_field(fieldname).allow_on_submit
+	]
+	if locked:
+		labels = ", ".join(_(doc.meta.get_label(fieldname)) for fieldname in locked)
+		frappe.throw(
+			_("{0} is completed, so {1} cannot change. Reopen it to make changes.").format(_(doc.doctype), labels),
+			frappe.ValidationError,
+		)
 
 
 def _next_mark_sequence(patient: str, encounter: str | None = None, category: str | None = None) -> int:
@@ -3941,6 +4059,7 @@ def create_procedure_from_mark(
 
 	if not mark:
 		frappe.throw(_("Chart mark is required."))
+	_ensure_owner_open("Derma Chart Mark", mark)
 	mark_doc = frappe.get_doc("Derma Chart Mark", mark)
 	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
 	if payload:
@@ -4036,6 +4155,7 @@ def discard_chart_marks(names: str | list[str]):
 		if not name or not frappe.db.exists("Derma Chart Mark", name):
 			continue
 		mark_doc = frappe.get_doc("Derma Chart Mark", name)
+		_ensure_encounter_open(mark_doc.encounter)
 		if _is_mark_documented(mark_doc):
 			kept.append(name)
 			continue
@@ -4059,6 +4179,7 @@ def prune_chart_marks(names: str | list[str], annotation: str | None = None):
 		if not name or not frappe.db.exists("Derma Chart Mark", name):
 			continue
 		mark_doc = frappe.get_doc("Derma Chart Mark", name)
+		_ensure_encounter_open(mark_doc.encounter)
 		if _is_mark_documented(mark_doc, ignore_annotation=annotation):
 			kept.append(name)
 			continue
@@ -4099,6 +4220,7 @@ def carry_forward_marks(
 	target_encounter = context["encounter_id"]
 	if not target_encounter:
 		frappe.throw(_("An active Patient Encounter is required."))
+	_ensure_encounter_open(target_encounter)
 
 	copied = []
 	for source_name in mark_names:
@@ -4252,6 +4374,7 @@ def create_photo_set(values: str | dict[str, Any]):
 	if not payload.get("encounter"):
 		context = ensure_chart_context(payload.get("patient"), payload.get("appointment"))
 		payload["encounter"] = context.get("encounter")
+	_ensure_encounter_open(payload.get("encounter"))
 
 	doc = frappe.new_doc("Derma Photo Set")
 	mark_doc = (
@@ -4494,6 +4617,91 @@ def get_patient_timeline(patient: str, current_encounter: str | None = None, lim
 		rows.append({"kind": "Treatment", **row})
 	rows.sort(key=lambda row: row.get("modified") or "", reverse=True)
 	return rows[: cint(limit)]
+
+
+def _load_visit_drawings(encounter: str) -> list[dict[str, Any]]:
+	"""An encounter's drawings and its procedures', without the scene JSON."""
+	field = _get_clinical_procedure_encounter_field()
+	procedures = (
+		frappe.get_all("Clinical Procedure", filters={field: encounter, "docstatus": ["<", 2]}, pluck="name")
+		if field
+		else []
+	)
+	parents = [("Patient Encounter", encounter), *(("Clinical Procedure", name) for name in procedures)]
+	return _load_annotations_for_parents(parents, include_scene=False)
+
+
+@frappe.whitelist()
+def get_previous_visits(patient: str, current_encounter: str | None = None, start: int = 0, page_length: int = 5):
+	_ensure_clinical_access()
+	if not patient:
+		frappe.throw(_("Patient is required."))
+	if cint(start) < 0:
+		frappe.throw(_("Start must not be negative."), frappe.ValidationError)
+	return previous_visits.get_page(
+		patient,
+		current_encounter,
+		cint(start),
+		max(1, min(cint(page_length) or 5, 20)),
+		_load_visit_drawings,
+	)
+
+
+def _get_visit_moment_fields(encounter: str | None) -> dict[str, Any]:
+	if not encounter:
+		return {"visit_date": None, "visit_time": None}
+	moment = previous_visits.get_visit_moment(encounter)
+	return {"visit_date": moment.visit_date, "visit_time": moment.visit_time}
+
+
+@frappe.whitelist()
+def get_visit_summary(encounter: str):
+	_ensure_clinical_access()
+	if not encounter or not frappe.db.exists("Patient Encounter", encounter):
+		frappe.throw(_("Patient Encounter {0} not found.").format(encounter), frappe.DoesNotExistError)
+	doc = _resolve_patient_encounter_doc(encounter=encounter)
+	if cint(doc.docstatus) == 2:
+		frappe.throw(_("Patient Encounter {0} is cancelled.").format(encounter), frappe.ValidationError)
+	return {
+		"encounter": doc.name,
+		"visit_date": previous_visits.get_visit_moment(doc.name).visit_date,
+		"practitioner_name": doc.practitioner_name or doc.practitioner or "",
+		"mode_label": _(assessment.MODE_LABELS[assessment.get_assessment_mode(doc)]),
+		"assessment": assessment.get_summary(doc),
+		"patient_advice": assessment.get_plain_text(doc.get("custom_derma_patient_advice")),
+		"procedures": _get_visit_summary_procedures(doc),
+		"prescriptions": _get_visit_summary_prescriptions(doc),
+		"drawings": _load_visit_drawings(doc.name),
+	}
+
+
+def _get_visit_summary_procedures(doc) -> list[dict[str, Any]]:
+	"""`title` follows procedureDisplayName in shared/procedure_label.js."""
+	if not _get_clinical_procedure_encounter_field():
+		return []
+	return [
+		{
+			"name": row.name,
+			"title": row.get("template_label") or row.get("procedure_template") or row.name,
+			"status": row.get("status") or "",
+			"practitioner_name": row.get("practitioner_name") or row.get("practitioner") or "",
+			"notes": assessment.get_plain_text(row.get("notes")),
+		}
+		for row in _get_derma_procedures(doc.patient, encounter=doc.name)
+		if cint(row.get("docstatus")) != 2
+	]
+
+
+def _get_visit_summary_prescriptions(doc) -> list[dict[str, Any]]:
+	return [
+		{
+			"drug": row.get("drug_name") or row.get("medication") or row.get("drug_code") or "",
+			"dosage": cstr(row.get("dosage")),
+			"period": cstr(row.get("period")),
+			"comment": assessment.get_plain_text(row.get("comment")),
+		}
+		for row in _drug_prescription_rows(doc)
+	]
 
 
 @frappe.whitelist()
