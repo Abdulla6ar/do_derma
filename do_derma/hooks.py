@@ -52,6 +52,10 @@ jinja = {
 	]
 }
 
+# Contributes the "Last derma visit" card to do_health's Patient Overview drawer. do_health
+# renders it; the provider only reads and returns plain data.
+do_health_patient_overview_sections = ["do_derma.overview.section.get_patient_overview_section"]
+
 # Runs on every migrate, bypassing Patch Log, so a site whose patches are recorded
 # as applied but whose fields are missing converges anyway. Idempotent.
 after_migrate = "do_derma.install.after_migrate"
