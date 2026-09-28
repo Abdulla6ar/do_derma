@@ -11,8 +11,8 @@ import do_derma.api as api
 from do_derma.tests.test_api import DermaTestHelpers
 
 
-class TestDermaPrescriptions(DermaTestHelpers, IntegrationTestCase):
-	"""The Rx tab writes and reads Patient Encounter's drug_prescription table."""
+class PrescriptionHelpers(DermaTestHelpers):
+	"""Rows the Rx tab would send, with healthcare's two mandatory fields filled."""
 
 	def setUp(self):
 		self.addCleanup(frappe.set_user, "Administrator")
@@ -52,6 +52,10 @@ class TestDermaPrescriptions(DermaTestHelpers, IntegrationTestCase):
 			.insert(ignore_permissions=True)
 			.name
 		)
+
+
+class TestDermaPrescriptions(PrescriptionHelpers, IntegrationTestCase):
+	"""The Rx tab writes and reads Patient Encounter's drug_prescription table."""
 
 	def test_a_saved_row_reads_back(self):
 		encounter = self._make_encounter(self._make_patient())
@@ -109,6 +113,53 @@ class TestDermaPrescriptions(DermaTestHelpers, IntegrationTestCase):
 		patient = self._make_patient()
 		chart = api.get_patient_derma_chart(patient_id=patient)
 		self.assertEqual(chart["prescription_count"], 0)
+
+
+class TestOrderedPrescriptions(PrescriptionHelpers, IntegrationTestCase):
+	"""A row turned into a Medication Request is kept verbatim, so resubmitting orders nothing twice."""
+
+	def _ordered_encounter(self):
+		encounter = self._make_encounter(self._make_patient())
+		api.set_derma_prescriptions(payload=json.dumps([self._row(drug_name="Ordered")]), encounter=encounter.name)
+		row = frappe.get_doc("Patient Encounter", encounter.name).drug_prescription[0]
+		frappe.db.set_value(row.doctype, row.name, "medication_request", "MR-DERMA-TEST")
+		return encounter
+
+	def test_an_ordered_row_survives_a_save_that_omits_it(self):
+		encounter = self._ordered_encounter()
+		saved = api.set_derma_prescriptions(payload=json.dumps([self._row(drug_name="New")]), encounter=encounter.name)
+		self.assertEqual(
+			[(row["drug_name"], row.get("medication_request")) for row in saved["drug_prescription"]],
+			[("Ordered", "MR-DERMA-TEST"), ("New", None)],
+		)
+
+	def test_an_edited_ordered_row_keeps_its_stored_values(self):
+		"""A client resending a known request with changed fields does not overwrite what was ordered."""
+		encounter = self._ordered_encounter()
+		stored = api.get_derma_prescriptions(encounter=encounter.name)["drug_prescription"][0]
+		saved = api.set_derma_prescriptions(
+			payload=json.dumps(
+				[
+					self._row(
+						drug_name="Edited",
+						medication_request=stored["medication_request"],
+						comment="Edited after ordering",
+					)
+				]
+			),
+			encounter=encounter.name,
+		)
+		self.assertEqual(len(saved["drug_prescription"]), 1)
+		self.assertEqual(saved["drug_prescription"][0]["drug_name"], stored["drug_name"])
+		self.assertEqual(saved["drug_prescription"][0]["comment"], stored["comment"])
+
+	def test_an_unknown_request_is_refused(self):
+		encounter = self._ordered_encounter()
+		with self.assertRaises(frappe.ValidationError):
+			api.set_derma_prescriptions(
+				payload=json.dumps([self._row(drug_name="Forged", medication_request="MR-OTHER")]),
+				encounter=encounter.name,
+			)
 
 
 class TestConsentPreview(DermaTestHelpers, IntegrationTestCase):

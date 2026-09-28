@@ -468,16 +468,18 @@ class TestProcedureLevelVariables(DermaTestHelpers, IntegrationTestCase):
 		rows = api._get_derma_procedures(patient, encounter=encounter)
 		return next(row for row in rows if row["name"] == procedure)
 
-	def test_a_submitted_procedure_still_takes_them(self):
-		"""Same contract as a drawing: the procedure is submittable and the studio keeps working."""
+	def test_a_submitted_procedure_refuses_them(self):
+		"""A completed procedure is read-only; it must be reopened before the studio can write to it."""
 		patient = self._make_patient()
 		procedure = self._make_clinical_procedure(patient)
 		template = self._flagged_template()
 		frappe.db.set_value("Clinical Procedure", procedure.name, "docstatus", 1)
 
-		api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+		self.assertIn("Reopen it to make changes", str(caught.exception))
 
-		self.assertEqual(api._procedure_level_variables(procedure.name, template), {"fluence": "12"})
+		self.assertEqual(api._procedure_level_variables(procedure.name, template), {})
 
 
 class TestBodyTemplatePartSave(DermaTestHelpers, IntegrationTestCase):

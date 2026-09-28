@@ -1,5 +1,25 @@
 <template>
-  <header class="derma-encounter-header" data-test="encounter-header">
+  <header
+    class="derma-encounter-header"
+    :class="{ 'is-latest-visit': encounter.name && isLatest, 'is-previous-visit': encounter.name && !isLatest }"
+    data-test="encounter-header"
+  >
+    <div v-if="encounter.name" class="encounter-visit-strip" data-test="encounter-visit-strip">
+      <span class="encounter-visit-pill">{{ isLatest ? __("Latest visit") : __("Previous visit") }}</span>
+      <b>{{ visitWhen }}</b>
+      <span>{{ encounter.name }}</span>
+      <span v-if="encounter.practitioner_name">· {{ encounter.practitioner_name }}</span>
+      <button
+        v-if="!isLatest"
+        type="button"
+        class="encounter-open-latest"
+        data-test="open-latest-visit"
+        @click="$emit('open-latest')"
+      >
+        {{ __("Open latest visit") }} →
+      </button>
+    </div>
+
     <div class="encounter-patient">
       <img
         v-if="patient.image && !isBroken(patient.image)"
@@ -35,6 +55,7 @@
 
     <div class="encounter-actions">
       <button
+        v-if="!isCompleted"
         type="button"
         class="primary"
         data-test="complete-session"
@@ -43,6 +64,19 @@
       >
         {{ completing ? __("Completing...") : __("Complete Encounter") }}
       </button>
+      <button
+        v-else-if="canReopen"
+        type="button"
+        class="reopen"
+        data-test="reopen-session"
+        :disabled="reopening"
+        @click="$emit('reopen')"
+      >
+        {{ reopening ? __("Reopening...") : __("Reopen Encounter") }}
+      </button>
+      <span v-else class="encounter-completed-note" data-test="encounter-completed-note">
+        {{ __("Completed. Reopening needs cancel permission.") }}
+      </span>
     </div>
 
     <div v-if="alerts.length" class="encounter-alert-chips" data-test="encounter-alerts">
@@ -82,11 +116,26 @@ const props = defineProps({
   // A completion awaiting its confirm dialog: the button refuses a second click without
   // claiming that completion is under way.
   pending: { type: Boolean, default: false },
+  canReopen: { type: Boolean, default: false },
+  reopening: { type: Boolean, default: false },
   alerts: { type: Array, default: () => [] },
+  latestEncounter: { type: String, default: "" },
+  // The appointment's date and time when the visit has one; the encounter is dated when the chart opened it.
+  visitDate: { type: String, default: "" },
+  visitTime: { type: String, default: "" },
 })
 
-defineEmits(["complete", "alert-action"])
+defineEmits(["complete", "reopen", "open-latest", "alert-action"])
 
+const isCompleted = computed(() => Number(props.encounter.docstatus) === 1)
+const isLatest = computed(() => !props.latestEncounter || props.latestEncounter === props.encounter.name)
+const visitWhen = computed(() => {
+  const date = window.frappe?.datetime?.str_to_user?.(props.visitDate) || props.visitDate
+  // Frappe sends times as "7:15:15.9": pad the hour, drop the seconds.
+  const [hour = "", minute = ""] = props.visitTime.split(":")
+  const time = hour && minute ? `${hour.padStart(2, "0")}:${minute}` : ""
+  return [date, time].filter(Boolean).join(" · ")
+})
 const patientName = computed(() => props.patient.patient_name || props.patient.name || __("Patient"))
 const initials = computed(() => patientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "P")
 const patientMeta = computed(() => {
