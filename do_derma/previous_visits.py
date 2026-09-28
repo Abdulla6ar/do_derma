@@ -41,6 +41,12 @@ def get_page(
 	return {"visits": visits, "has_more": True, "next_start": offset}
 
 
+def get_latest_encounter(patient: str) -> str | None:
+	"""The patient's newest visit that is not cancelled, in the order Previous Visits lists them."""
+	latest = _get_encounters(patient, None, 0, 1)
+	return latest[0].name if latest else None
+
+
 def _get_cutoff(current_encounter: str | None) -> dict[str, Any] | None:
 	if not current_encounter:
 		return None

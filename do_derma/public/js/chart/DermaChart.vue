@@ -44,8 +44,10 @@
         :can-reopen="Boolean(reopenPermissions.can_reopen_encounter)"
         :reopening="reopeningSession"
         :alerts="encounterAlertItems"
+        :latest-encounter="data.latest_encounter || ''"
         @complete="completeSession"
         @reopen="reopenSession"
+        @open-latest="openLatestVisit"
         @alert-action="handleEncounterAlert"
       />
 
@@ -2486,6 +2488,13 @@ async function reopenRecord(method, args, title) {
   } finally {
     reopenPending.value = false
   }
+}
+
+/** Navigates rather than reloading in place, so refresh() keeps returning to the visit on screen. */
+function openLatestVisit() {
+  if (!data.value.latest_encounter) return
+  frappe.route_options = { patient: patient.value.name, encounter: data.value.latest_encounter }
+  frappe.set_route("derma-chart")
 }
 
 function reopenSession() {

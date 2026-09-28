@@ -2573,6 +2573,7 @@ def get_patient_derma_chart(
 		),
 		"settings": get_feature_toggles(),
 		"context_errors": context_errors,
+		"latest_encounter": previous_visits.get_latest_encounter(patient) if patient else None,
 		"permissions": {
 			"can_reopen_encounter": bool(encounter_id)
 			and bool(frappe.has_permission("Patient Encounter", "cancel", doc=encounter_id)),

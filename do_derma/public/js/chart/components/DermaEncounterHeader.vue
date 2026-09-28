@@ -1,5 +1,25 @@
 <template>
-  <header class="derma-encounter-header" data-test="encounter-header">
+  <header
+    class="derma-encounter-header"
+    :class="{ 'is-latest-visit': encounter.name && isLatest, 'is-previous-visit': encounter.name && !isLatest }"
+    data-test="encounter-header"
+  >
+    <div v-if="encounter.name" class="encounter-visit-strip" data-test="encounter-visit-strip">
+      <span class="encounter-visit-pill">{{ isLatest ? __("Latest visit") : __("Previous visit") }}</span>
+      <b>{{ visitWhen }}</b>
+      <span>{{ encounter.name }}</span>
+      <span v-if="encounter.practitioner_name">· {{ encounter.practitioner_name }}</span>
+      <button
+        v-if="!isLatest"
+        type="button"
+        class="encounter-open-latest"
+        data-test="open-latest-visit"
+        @click="$emit('open-latest')"
+      >
+        {{ __("Open latest visit") }} →
+      </button>
+    </div>
+
     <div class="encounter-patient">
       <img
         v-if="patient.image && !isBroken(patient.image)"
@@ -99,11 +119,18 @@ const props = defineProps({
   canReopen: { type: Boolean, default: false },
   reopening: { type: Boolean, default: false },
   alerts: { type: Array, default: () => [] },
+  latestEncounter: { type: String, default: "" },
 })
 
-defineEmits(["complete", "reopen", "alert-action"])
+defineEmits(["complete", "reopen", "open-latest", "alert-action"])
 
 const isCompleted = computed(() => Number(props.encounter.docstatus) === 1)
+const isLatest = computed(() => !props.latestEncounter || props.latestEncounter === props.encounter.name)
+const visitWhen = computed(() => {
+  const date = window.frappe?.datetime?.str_to_user?.(props.encounter.encounter_date) || props.encounter.encounter_date || ""
+  const time = String(props.encounter.encounter_time || "").slice(0, 5)
+  return [date, time].filter(Boolean).join(" · ")
+})
 const patientName = computed(() => props.patient.patient_name || props.patient.name || __("Patient"))
 const initials = computed(() => patientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "P")
 const patientMeta = computed(() => {

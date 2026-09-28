@@ -160,6 +160,57 @@
   font-size: 12px;
 }
 
+.derma-encounter-header.is-latest-visit {
+  --visit-accent: var(--derma-brand);
+  --visit-tint: var(--derma-success-bg);
+  border-left: 4px solid var(--visit-accent);
+}
+
+.derma-encounter-header.is-previous-visit {
+  --visit-accent: #2563eb;
+  --visit-tint: #eff6ff;
+  border-left: 4px solid var(--visit-accent);
+}
+
+.encounter-visit-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--visit-tint);
+  color: var(--derma-text-muted);
+  font-size: 12.5px;
+}
+
+.encounter-visit-strip b {
+  color: var(--derma-text-strong);
+}
+
+.encounter-visit-pill {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--visit-accent);
+  color: var(--derma-white);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.dental-chart-page .encounter-visit-strip .encounter-open-latest {
+  margin-left: auto;
+  padding: 5px 12px;
+  border: 1px solid var(--visit-accent);
+  border-radius: 8px;
+  background: var(--derma-white);
+  color: var(--visit-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .derma-mode-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

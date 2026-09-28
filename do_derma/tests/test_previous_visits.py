@@ -247,3 +247,38 @@ class TestDrawingsSection(DermaTestHelpers, IntegrationTestCase):
 		context = api.get_patient_derma_chart(patient_id=patient, encounter=empty.name)
 
 		self.assertEqual((context["annotations"], context["latest_annotation"]), ([], None))
+
+
+class TestLatestVisit(DermaTestHelpers, IntegrationTestCase):
+	"""The chart header says whether the open visit is the patient's latest one."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+
+	def _visit_on(self, days_ago):
+		encounter = self._make_encounter(self.patient)
+		encounter.db_set("encounter_date", add_days(nowdate(), -days_ago))
+		return encounter
+
+	def _chart(self, encounter):
+		return api.get_patient_derma_chart(patient_id=self.patient, encounter=encounter.name)
+
+	def test_the_newest_visit_is_the_latest(self):
+		self._visit_on(10)
+		newest = self._visit_on(1)
+
+		self.assertEqual(self._chart(newest)["latest_encounter"], newest.name)
+
+	def test_an_older_visit_points_at_the_latest(self):
+		older = self._visit_on(10)
+		newest = self._visit_on(1)
+
+		self.assertEqual(self._chart(older)["latest_encounter"], newest.name)
+
+	def test_a_cancelled_newer_visit_does_not_count(self):
+		kept = self._visit_on(10)
+		cancelled = self._visit_on(1)
+		cancelled.submit()
+		cancelled.cancel()
+
+		self.assertEqual(self._chart(kept)["latest_encounter"], kept.name)
