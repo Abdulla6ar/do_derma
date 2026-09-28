@@ -542,12 +542,13 @@
   padding: 0;
 }
 
-.previous-visit > button,
-.previous-visits-more {
+.previous-visit > button {
   justify-self: start;
 }
 
-.previous-visits-more {
+.previous-visits-actions {
+  display: flex;
+  gap: 8px;
   margin: 0 12px 12px;
 }
 

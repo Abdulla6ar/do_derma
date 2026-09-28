@@ -1,5 +1,10 @@
 <template>
-  <section v-if="visits.length || hasMore || error" class="chart-annotation-history previous-visits" data-test="previous-visits">
+  <section
+    v-if="visits.length || hasMore || error"
+    ref="panel"
+    class="chart-annotation-history previous-visits"
+    data-test="previous-visits"
+  >
     <header>
       <div>
         <strong>{{ __("Previous Visits") }}</strong>
@@ -63,17 +68,28 @@
       {{ error }}
       <button type="button" class="ghost small" @click="loadPage">{{ __("Retry") }}</button>
     </p>
-    <button
-      v-if="hasMore && !error"
-      type="button"
-      class="ghost small previous-visits-more"
-      data-test="previous-visits-more"
-      :disabled="loading"
-      @click="loadPage"
-    >
-      <span v-if="loading" class="chart-spinner" aria-hidden="true"></span>
-      {{ __("Load more") }}
-    </button>
+    <div v-if="(hasMore && !error) || isCollapsible" class="previous-visits-actions">
+      <button
+        v-if="hasMore && !error"
+        type="button"
+        class="ghost small"
+        data-test="previous-visits-more"
+        :disabled="loading"
+        @click="loadPage"
+      >
+        <span v-if="loading" class="chart-spinner" aria-hidden="true"></span>
+        {{ __("Load more") }}
+      </button>
+      <button
+        v-if="isCollapsible"
+        type="button"
+        class="ghost small"
+        data-test="previous-visits-collapse"
+        @click="collapse"
+      >
+        {{ __("Collapse") }}
+      </button>
+    </div>
     <VisitSummaryDialog
       :encounter="summaryEncounter"
       :preview-of="previewOf"
@@ -86,7 +102,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from "vue"
+import { computed, reactive, ref, watch } from "vue"
 import { serverErrorText } from "../../../shared/error_text.js"
 import { useBrokenImages } from "../../../shared/broken_images.js"
 import VisitSummaryDialog from "./VisitSummaryDialog.vue"
@@ -113,8 +129,13 @@ const loading = ref(false)
 const error = ref("")
 const summaryEncounter = ref("")
 const expanded = reactive(new Set())
+const panel = ref(null)
+// Where the first page ended, so Collapse can return to it without refetching.
+const firstPage = ref(null)
 let nextStart = 0
 let requestId = 0
+
+const isCollapsible = computed(() => Boolean(firstPage.value) && visits.value.length > firstPage.value.count)
 
 async function loadPage() {
   if (!props.patient || loading.value) return
@@ -135,12 +156,23 @@ async function loadPage() {
     visits.value = [...visits.value, ...(message.visits || [])]
     hasMore.value = Boolean(message.has_more)
     nextStart = message.next_start
+    firstPage.value ||= { count: visits.value.length, hasMore: hasMore.value, nextStart }
   } catch (err) {
     if (request !== requestId) return
     error.value = serverErrorText(err, __("Unable to load previous visits."))
   } finally {
     if (request === requestId) loading.value = false
   }
+}
+
+function collapse() {
+  requestId++
+  loading.value = false
+  error.value = ""
+  visits.value = visits.value.slice(0, firstPage.value.count)
+  hasMore.value = firstPage.value.hasMore
+  nextStart = firstPage.value.nextStart
+  panel.value?.scrollIntoView({ block: "start", behavior: "smooth" })
 }
 
 function shownFields(visit) {
@@ -162,6 +194,7 @@ watch(
     error.value = ""
     summaryEncounter.value = ""
     expanded.clear()
+    firstPage.value = null
     nextStart = 0
     loadPage()
   },
