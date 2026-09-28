@@ -53,6 +53,12 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 		for spec in documents.KINDS.values():
 			self.assertTrue(frappe.db.exists("Patient Print Template", {"title": documents.TEMPLATE_PREFIX + spec["title"]}))
 
+	def test_every_kind_is_an_allowed_document_type(self):
+		options = frappe.get_meta("Patient Official Document").get_field("document_type").options.split("\n")
+		for spec in documents.KINDS.values():
+			self.assertIn(spec["document_type"], options)
+		self.assertIn("Medical Certificate", options)
+
 	def test_prompt_carries_note_diagnosis_and_addressee(self):
 		context = documents.build_document_context(self.encounter, addressee="Dr. Salman")
 		self.assertEqual(context["diagnosis"], "Irritant contact dermatitis")

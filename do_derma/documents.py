@@ -18,7 +18,7 @@ from frappe.utils import cstr, getdate
 
 from do_derma import assessment, voice
 from do_derma.assessment import HP, SOAP
-from do_derma.schema import VOICE_TRANSCRIPT_FIELD
+from do_derma.schema import DERMA_MODULE, VOICE_TRANSCRIPT_FIELD
 
 TEMPLATE_PREFIX = "Derma AI "
 HISTORY_LIMIT = 5
@@ -359,10 +359,27 @@ def upgrade_template(name: str) -> None:
 	template.save(ignore_permissions=True)
 
 
+def ensure_document_types() -> None:
+	"""Append every kind's document type to do_health's own Patient Official Document types."""
+	standard = frappe.db.get_value("DocField", {"parent": "Patient Official Document", "fieldname": "document_type"}, "options")
+	if standard is None:
+		return
+	types = standard.split("\n")
+	options = "\n".join(types + [spec["document_type"] for spec in KINDS.values() if spec["document_type"] not in types])
+	if frappe.get_meta("Patient Official Document").get_field("document_type").options == options:
+		return
+	frappe.make_property_setter(
+		{"doctype": "Patient Official Document", "fieldname": "document_type", "property": "options", "value": options, "property_type": "Text"},
+		is_system_generated=False,
+		module=DERMA_MODULE,
+	)
+
+
 def ensure_document_templates() -> list[str]:
-	"""Seed one print template per kind. Idempotent; a clinic's edits are kept."""
+	"""Seed one document type and print template per kind. Idempotent; a clinic's edits are kept."""
 	if not frappe.db.exists("DocType", "Patient Print Template"):
 		return []
+	ensure_document_types()
 	created = []
 	for spec in KINDS.values():
 		title = TEMPLATE_PREFIX + spec["title"]
