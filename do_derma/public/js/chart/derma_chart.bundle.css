@@ -126,8 +126,6 @@
 }
 
 .encounter-chip.active {
-  border-color: var(--derma-brand-light);
-  background: var(--derma-success-bg);
   color: var(--derma-brand);
 }
 
