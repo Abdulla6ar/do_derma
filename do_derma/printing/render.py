@@ -5,6 +5,7 @@ call instead of a copy of the field list. The layout comes from `assessment.py`,
 is the one owner of what each Assessment Mode contains.
 """
 
+import re
 from typing import Any
 
 import frappe
@@ -22,6 +23,13 @@ from do_derma.printing import procedure_variables
 MARK_SAFE_FIELDTYPES = {"Text Editor", "HTML Editor", "Markdown Editor"}
 FORMATTED_FIELDTYPES = {"Date", "Datetime", "Time", "Currency", "Float", "Int", "Percent"}
 MODE_HEADINGS = {assessment.SOAP: "SOAP", assessment.HP: "H&P"}
+# Arabic vowel marks: wkhtmltopdf drops a word carrying one into a smaller, raised fallback font.
+ARABIC_MARKS = re.compile("[\u064b-\u0652]")
+
+
+def derma_print_text(text: Any) -> str:
+	"""Jinja global. The text without Arabic vowel marks, so every word prints in one font."""
+	return ARABIC_MARKS.sub("", str(text or ""))
 
 
 def derma_assessment_html(doc, mode: str | None = None) -> Markup:
@@ -179,7 +187,7 @@ def format_field(row: dict[str, Any], value: Any) -> Markup:
 		return Markup(value)
 	if fieldtype in FORMATTED_FIELDTYPES:
 		return escape(format_value(value, row))
-	text = str(value).strip()
+	text = derma_print_text(value).strip()
 	return escape(text).replace("\n", Markup("<br>")) if text else Markup("")
 
 

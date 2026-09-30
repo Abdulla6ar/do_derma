@@ -35,7 +35,7 @@ DOC_COMMON = """You are SOULVD Health, the clinical documentation assistant of {
 GROUNDING RULES (mandatory):
 - Use ONLY the consultation note, patient data, prior-visit summaries and transcript you are given. Never invent findings, medications, doses, dates, results, or history. Where information is missing, omit the line or write "Not documented".
 - Professional, clear English. No markdown other than "## " for the headings named below and "- " for list lines. No tables, no bold, no code fences.
-- Use the clinician name, clinician title and clinic name exactly as passed in for any sign-off. If the clinician title is blank, sign with the name only - never invent a title or specialty.
+- Do not sign the document: no closing line (such as "Yours sincerely,"), clinician name, title or clinic name at the end. The printed document adds the clinician's signature.
 - Also produce text_ar: a faithful Arabic version of the same document (same structure and headings, translated; clinical Arabic as used in {country}; patient-facing letters in warm plain Arabic).
 - Respond with ONLY a valid JSON object, no commentary: {"text": "...", "text_ar": "..."}"""
 
@@ -50,8 +50,7 @@ TASK: Write a formal Medical Report for the patient with exactly these H2 sectio
 ## Allergies
 ## Vital Signs and Present Medical Condition and Management
 ## Summary of Reports in Chronological Order
-Use the heading lines above verbatim. Demographic Data = name, MRN, age, gender (only the fields provided). Vital Signs section = vitals only if documented, then current condition (diagnosis), examination findings and the management given. Chronological Summary = one paragraph per visit, oldest first, each starting with the visit date, covering the prior visits provided and ending with the current visit.
-Close with the clinician name and title on two separate lines.""",
+Use the heading lines above verbatim. Demographic Data = name, MRN, age, gender (only the fields provided). Vital Signs section = vitals only if documented, then current condition (diagnosis), examination findings and the management given. Chronological Summary = one paragraph per visit, oldest first, each starting with the visit date, covering the prior visits provided and ending with the current visit.""",
 	"referral": DOC_COMMON
 	+ """
 
@@ -66,10 +65,7 @@ Investigations:
 <one investigation per line, results included when known; "None documented" if none>
 Referral Details:
 <one paragraph - what the referral is for and the specific question or action requested>
-Thank you for your attention to this matter.
-Yours sincerely,
-<clinician name>
-<clinician title>""",
+Thank you for your attention to this matter.""",
 	"education": DOC_COMMON
 	+ """
 
@@ -96,18 +92,15 @@ It was a pleasure to see you today and review your health concerns. I appreciate
 (3 topics normally; 2 only when the visit genuinely covered less, 4 when it covered more - each a distinct issue from the note)
 ## Next Steps:
 <"- " lines: treatments and how to use them, investigations, follow-up date if given>
-Thank you for trusting me with your care. If you have any questions or concerns about anything we discussed, please do not hesitate to reach out.
-Warm regards,
-<clinician name>
-<clinician title>""",
+Thank you for trusting me with your care. If you have any questions or concerns about anything we discussed, please do not hesitate to reach out.""",
 }
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
 # become headings and "- " lines become bullets, everything else a paragraph.
-TEMPLATE_VERSION = 8
+TEMPLATE_VERSION = 21
 TEMPLATE_MARKER = "<!-- derma-ai-letter v"
 LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
-""" + letterhead.OPEN + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:0 24px;">
+""" + letterhead.OPEN + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.4;padding:0 24px;">
   <div style="text-align:right;font-size:12px;color:#666;margin-bottom:10px;">{{ today }}</div>
   {% set language = values.language or 'English' %}
   {% set show_en = language != 'Arabic' or not values.body_ar %}
@@ -120,31 +113,43 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     <td style="padding:6px 8px;white-space:nowrap;"><b>Visit:</b> {{ encounter.encounter_date if encounter else today }}</td>
     <td style="padding:6px 8px;white-space:nowrap;"><b>Clinician:</b> {{ practitioner.practitioner_name if practitioner else '' }}</td>
   </tr></table>
-  <div style="font-size:13px;">
-  {% for line in (values.body or '').split('\\n') %}
-    {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:16px 0 6px;">{{ line[3:] }}</h2>
+  <div style="font-size:12px;">
+  {% for line in derma_letter_lines(values.body, practitioner.practitioner_name if practitioner else '') %}
+    {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:10px 0 4px;">{{ line[3:] }}</h2>
     {% elif line.startswith('- ') %}<div style="padding-left:16px;text-indent:-10px;margin:2px 0;">&bull; {{ line[2:] }}</div>
-    {% elif line.strip() %}<p style="margin:6px 0;">{{ line }}</p>{% endif %}
+    {% else %}<p style="margin:4px 0;">{{ line }}</p>{% endif %}
   {% endfor %}
   </div>
-  {% if practitioner and practitioner.practitioner_name not in (values.body or '') %}
-  <div style="margin-top:40px;font-size:12px;">
-    <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ practitioner.practitioner_name }}<br>
-      <span style="color:#666;">{{ practitioner.custom_specialty or practitioner.designation or '' }}</span></div>
-  </div>
-  {% endif %}
+""" + letterhead.SIGNATURE + """
   {% endif %}
   {% if show_ar %}
-  <div dir="rtl" style="{{ 'page-break-before:always;' if show_en else '' }}font-size:13px;padding-top:12px;">
-    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title_ar or values.title }}</h1>
-    {% for line in values.body_ar.split('\\n') %}
-      {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:16px 0 6px;">{{ line[3:] }}</h2>
+  <div dir="rtl" style="{{ 'page-break-before:always;' if show_en else '' }}font-size:12px;padding-top:12px;">
+    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ derma_print_text(values.title_ar or values.title) }}</h1>
+    {% for line in derma_letter_lines(derma_print_text(values.body_ar), practitioner.practitioner_name if practitioner else '', values.body) %}
+      {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:10px 0 4px;">{{ line[3:] }}</h2>
       {% elif line.startswith('- ') %}<div style="padding-right:16px;margin:2px 0;">&bull; {{ line[2:] }}</div>
-      {% elif line.strip() %}<p style="margin:6px 0;">{{ line }}</p>{% endif %}
+      {% else %}<p style="margin:4px 0;">{{ line }}</p>{% endif %}
     {% endfor %}
+""" + letterhead.SIGNATURE + """
   </div>
   {% endif %}
 </div>""" + letterhead.CLOSE
+
+
+def derma_letter_lines(body: str | None, clinician: str | None, english_body: str | None = None) -> list[str]:
+	"""Jinja global. The body's non-blank lines without a written sign-off: the print adds the clinician's own.
+
+	A sign-off runs from its closing line ("Warm regards,") or the clinician's name to the end. The Arabic copy
+	spells the name in Arabic, so it is cut at the same place from the end as the English body (`english_body`).
+	"""
+	lines = [line for line in cstr(body).split("\n") if line.strip()]
+	english = [line.strip() for line in cstr(english_body or body).split("\n") if line.strip()]
+	name = cstr(clinician).strip()
+	name_at = next((len(english) - position for position, line in enumerate(reversed(english[-4:]), 1) if name and line == name), None)
+	if name_at is None:
+		return lines
+	start = name_at - 1 if name_at and english[name_at - 1].endswith((",", "،")) else name_at
+	return lines[: max(len(lines) - (len(english) - start), 0)]
 
 
 @frappe.whitelist()

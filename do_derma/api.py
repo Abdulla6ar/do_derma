@@ -23,6 +23,7 @@ from do_derma.config.marker_size import (
 )
 from do_derma.consumables import marks as consumable_marks
 from do_derma.consumables import procedures as consumable_procedures
+from do_derma.printing import letterhead
 from do_derma.schema import COMPLETION_OVERRIDE_FIELD
 from do_derma.settings import (
 	ENFORCEMENT_WARN,
@@ -2455,6 +2456,9 @@ def get_chart_context(
 		"narrative": build_visit_narrative(findings, treatments),
 		"voice_scribe_enabled": voice.is_enabled(),
 		"voice_scribe": voice.client_config(),
+		"letterhead_logo": letterhead.get_logo_url(
+			(context["encounter"] or {}).get("practitioner_name") or (context["appointment"] or {}).get("practitioner_name")
+		),
 	}
 
 

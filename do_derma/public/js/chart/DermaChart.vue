@@ -1658,7 +1658,7 @@ function printAnnotationReview(annotation) {
     frappe.show_alert({ message: __("Allow pop-ups to print the annotation."), indicator: "orange" })
     return
   }
-  // Same Derma One letterhead as the note and letters (do_derma/printing/letterhead.py):
+  // Same letterhead as the note and letters (do_derma/printing/letterhead.py):
   // logo on top, company block fixed to the foot of every sheet above a repeating spacer.
   printWindow.document.write(`<!doctype html>
     <html><head><title>${title}</title>
@@ -1671,7 +1671,7 @@ function printAnnotationReview(annotation) {
     </style></head>
     <body style="font-family:sans-serif;margin:0;">
       <table class="derma-letterhead"><tfoot><tr><td><div style="height:42mm;"></div></td></tr></tfoot><tbody><tr><td>
-        <div style="text-align:center;margin:0 0 40px;"><img src="/assets/do_derma/images/derma-one-logo.png" alt="Derma One" style="width:290px;height:auto;"></div>
+        <div style="text-align:center;margin:0 0 20px;"><img src="${escapeHtml(data.value.letterhead_logo || "/assets/do_derma/images/derma-one-logo.png")}" alt="Logo" style="max-width:290px;max-height:66px;width:auto;height:auto;"></div>
         <h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
         <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
         ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:60vh;" alt="">` : ""}
