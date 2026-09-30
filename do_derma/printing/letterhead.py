@@ -9,9 +9,16 @@ import base64
 from pathlib import Path
 
 # Inlined so wkhtmltopdf never fetches it back from the site, which fails outside a web request.
+# Served through a Jinja global: a data URI stored in a template is turned into a private File on save.
 LOGO_SRC = "data:image/png;base64," + base64.b64encode(
 	(Path(__file__).parent.parent / "public" / "images" / "derma-one-logo.png").read_bytes()
 ).decode()
+
+
+def derma_letterhead_logo() -> str:
+	"""Jinja global: the logo as a data URI."""
+	return LOGO_SRC
+
 
 FOOTER_LINES = (
 	"P.O. Box 31008, Floors 6 &amp; 7, Bldg 71, Road 3201, Block 332, Kingdom of Bahrain",
@@ -45,7 +52,7 @@ table.derma-letterhead { margin-bottom: 36px; }
 </style>"""
 
 # ponytail: move the logo into a #header-html block if multi-page letters need it on every sheet.
-HEADER = f'<div style="text-align:center;margin:0 0 40px;"><img src="{LOGO_SRC}" alt="Derma One" style="width:290px;height:auto;"></div>'
+HEADER = '<div style="text-align:center;margin:0 0 40px;"><img src="{{ derma_letterhead_logo() }}" alt="Derma One" style="width:290px;height:auto;"></div>'
 
 OPEN = STYLE + '<table class="derma-letterhead"><tfoot class="hidden-pdf"><tr><td><div style="height:42mm;"></div></td></tr></tfoot><tbody><tr><td>' + HEADER
 CLOSE = (

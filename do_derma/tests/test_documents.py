@@ -137,15 +137,15 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 	def test_issue_renders_body_and_attaches_pdf(self):
 		with self._enabled(), self._llm(REPORT):
 			out = documents.generate_document("education", self.encounter.name)
-		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=blank_pdf()):
+		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=blank_pdf()) as get_pdf:
 			issued = documents.issue_document(out["name"])
+		self.assertIn(letterhead.LOGO_SRC, get_pdf.call_args.args[0])  # embedded, so the PDF never fetches it
 		self.assertEqual(issued["status"], "Issued")
 		self.assertTrue(issued["pdf_url"])
 		html = frappe.db.get_value("Patient Official Document", out["name"], "rendered_html_snapshot")
 		self.assertIn("<h2", html)
 		self.assertIn("Patient Demographic Data", html)
 		self.assertIn("&bull; None documented", html)
-		self.assertIn(letterhead.LOGO_SRC, html)
 		self.assertIn("CR No. 100506-1", html)
 
 	def test_unknown_kind_and_disabled_are_refused(self):

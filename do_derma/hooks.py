@@ -49,6 +49,7 @@ jinja = {
 		"do_derma.printing.note.derma_diagnosis_html",
 		"do_derma.printing.render.derma_consumables_html",
 		"do_derma.printing.render.derma_procedure_variables_html",
+		"do_derma.printing.letterhead.derma_letterhead_logo",
 	]
 }
 
