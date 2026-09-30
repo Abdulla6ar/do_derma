@@ -13,6 +13,7 @@ from markupsafe import Markup, escape
 
 from do_derma import assessment
 from do_derma.assessment import HP, SOAP, STRUCTURED
+from do_derma.printing import letterhead
 
 ARABIC = re.compile(r"[\u0600-\u06FF]")
 ADVICE_FIELDS = {"English": "custom_derma_patient_advice", "Arabic": "custom_derma_patient_advice_ar"}
@@ -82,23 +83,19 @@ PRINT_FORMATS = {
 	STRUCTURED: "Derma Assessment Note (Structured)",
 }
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 6
+TEMPLATE_VERSION = 9
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """
-{%- set company = frappe.get_doc("Company", doc.company) if doc.company else None -%}
 {%- set patient = frappe.get_doc("Patient", doc.patient) if doc.patient else None -%}
 {%- set practitioner = frappe.get_doc("Healthcare Practitioner", doc.practitioner) if doc.practitioner else None -%}
-<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
-  <table style="width:100%;border-bottom:2px solid #1a3a5c;padding-bottom:10px;margin-bottom:22px;"><tr>
-    <td style="vertical-align:bottom;font-size:18px;font-weight:700;color:#1a3a5c;">{{ (company and company.company_name) or '' }}</td>
-    <td style="vertical-align:bottom;text-align:right;font-size:12px;color:#666;">{{ frappe.utils.formatdate(doc.encounter_date) }}</td>
-  </tr></table>
+""" + letterhead.OPEN + """
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:0 24px;">
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
-    <td style="padding:6px 10px;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
-    <td style="padding:6px 10px;"><b>MRN:</b> {{ doc.patient }}</td>
-    <td style="padding:6px 10px;"><b>Visit:</b> {{ frappe.utils.formatdate(doc.encounter_date) }}</td>
-    <td style="padding:6px 10px;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>MRN:</b> {{ doc.patient }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Visit:</b> {{ frappe.utils.formatdate(doc.encounter_date) }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
   </tr></table>
   {{ derma_diagnosis_html(doc) }}
   <div style="font-size:13px;">{{ derma_assessment_html(doc) }}</div>
@@ -108,7 +105,7 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
       <span style="color:#666;">{{ (practitioner and (practitioner.custom_specialty or practitioner.designation)) or '' }}</span></div>
   </div>
 </div>
-"""
+""" + letterhead.CLOSE
 
 
 def template_for(mode: str | None) -> str:

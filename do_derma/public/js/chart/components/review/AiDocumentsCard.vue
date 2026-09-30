@@ -3,7 +3,7 @@
     <header>
       <div>
         <strong>{{ __("AI Documents") }}</strong>
-        <small>{{ __("Drafted from this visit's note and transcript. Issue to render the letterhead PDF.") }}</small>
+        <small>{{ __("Drafted from this visit's note and transcript. PDF prints it on the clinic letterhead.") }}</small>
       </div>
       <div class="ai-documents-actions">
         <button
@@ -33,7 +33,7 @@
           <span class="ai-doc-buttons">
             <button type="button" class="ghost small" @click="open(doc)">{{ __("Open") }}</button>
             <a v-if="doc.pdf_url" class="ghost small" :href="doc.pdf_url" target="_blank" rel="noopener">{{ __("PDF") }}</a>
-            <button v-else-if="doc.docstatus === 0" type="button" class="primary small" :disabled="busy !== ''" @click="issue(doc)">{{ __("Issue") }}</button>
+            <button v-else-if="doc.docstatus === 0" type="button" class="primary small" :disabled="busy !== ''" data-test="ai-doc-pdf" @click="issueAndOpen(doc)">{{ __("PDF") }}</button>
           </span>
         </div>
         <details>
@@ -91,7 +91,7 @@ async function generate(kind) {
     const queued = await frappe.call({ method: "do_derma.documents.queue_document", args: { kind, encounter: props.encounter, addressee } })
     const doc = await waitForJob(queued.message?.job)
     documents.value = [doc, ...documents.value]
-    frappe.show_alert({ message: __("Draft ready. Review it, then Issue."), indicator: "green" })
+    frappe.show_alert({ message: __("Draft ready. Review it, then PDF."), indicator: "green" })
   } catch (err) {
     error.value = err?.message || __("The document could not be generated.")
   } finally {
@@ -133,15 +133,21 @@ function askAddressee() {
   })
 }
 
-async function issue(doc) {
+// PDF on a draft issues it (the PDF only exists once issued), then opens it. The tab is
+// opened before the await so the browser still treats it as the click's own pop-up.
+async function issueAndOpen(doc) {
+  const tab = window.open("", "_blank")
   busy.value = doc.name
   error.value = ""
   try {
     const response = await frappe.call({ method: "do_derma.documents.issue_document", args: { name: doc.name } })
-    documents.value = documents.value.map((row) => (row.name === doc.name ? response.message : row))
-    frappe.show_alert({ message: __("Document issued"), indicator: "green" })
+    const issued = response.message
+    documents.value = documents.value.map((row) => (row.name === doc.name ? issued : row))
+    if (tab && issued?.pdf_url) tab.location.href = issued.pdf_url
+    else tab?.close()
   } catch (err) {
-    error.value = err?.message || __("The document could not be issued.")
+    tab?.close()
+    error.value = err?.message || __("The PDF could not be created.")
   } finally {
     busy.value = ""
   }
