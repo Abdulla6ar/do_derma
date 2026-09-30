@@ -115,10 +115,10 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
   {% if show_en %}
   <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title }}</h1>
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
-    <td style="padding:6px 10px;"><b>Patient:</b> {{ patient.patient_name if patient else '' }}</td>
-    <td style="padding:6px 10px;"><b>MRN:</b> {{ patient.name if patient else '' }}</td>
-    <td style="padding:6px 10px;white-space:nowrap;"><b>Visit:</b> {{ encounter.encounter_date if encounter else today }}</td>
-    <td style="padding:6px 10px;white-space:nowrap;"><b>Clinician:</b> {{ practitioner.practitioner_name if practitioner else '' }}</td>
+    <td style="padding:6px 8px;white-space:nowrap;"><b>Patient:</b> {{ patient.patient_name if patient else '' }}</td>
+    <td style="padding:6px 8px;white-space:nowrap;"><b>MRN:</b> {{ patient.name if patient else '' }}</td>
+    <td style="padding:6px 8px;white-space:nowrap;"><b>Visit:</b> {{ encounter.encounter_date if encounter else today }}</td>
+    <td style="padding:6px 8px;white-space:nowrap;"><b>Clinician:</b> {{ practitioner.practitioner_name if practitioner else '' }}</td>
   </tr></table>
   <div style="font-size:13px;">
   {% for line in (values.body or '').split('\\n') %}

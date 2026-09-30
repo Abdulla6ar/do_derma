@@ -92,8 +92,8 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + letterhead.OPEN + """
 <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:0 24px;">
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
-    <td style="padding:6px 10px;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
-    <td style="padding:6px 10px;"><b>MRN:</b> {{ doc.patient }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>MRN:</b> {{ doc.patient }}</td>
     <td style="padding:6px 10px;white-space:nowrap;"><b>Visit:</b> {{ frappe.utils.formatdate(doc.encounter_date) }}</td>
     <td style="padding:6px 10px;white-space:nowrap;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
   </tr></table>
