@@ -145,7 +145,7 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 		self.assertIn("<h2", html)
 		self.assertIn("Patient Demographic Data", html)
 		self.assertIn("&bull; None documented", html)
-		self.assertIn(letterhead.LOGO_URL, html)
+		self.assertIn(letterhead.LOGO_SRC, html)
 		self.assertIn("CR No. 100506-1", html)
 
 	def test_unknown_kind_and_disabled_are_refused(self):

@@ -525,10 +525,10 @@ class TestPrintedEncounter(PrintingTestBase):
 		note.ensure_assessment_print_format()
 		encounter = self._soap_encounter(custom_derma_soap_plan="Topical steroid twice daily")
 		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=note.PRINT_FORMATS[assessment.SOAP])
-		self.assertIn(letterhead.LOGO_URL, printed)
+		self.assertIn(letterhead.LOGO_SRC, printed)
 		self.assertIn('id="footer-html"', printed)
 		self.assertIn("CR No. 100506-1", printed)
-		self.assertLess(printed.index(letterhead.LOGO_URL), printed.index("Topical steroid twice daily"))
+		self.assertLess(printed.index(letterhead.LOGO_SRC), printed.index("Topical steroid twice daily"))
 
 	def test_advice_language_follows_the_report_or_the_doctor(self):
 		encounter = self._soap_encounter(
