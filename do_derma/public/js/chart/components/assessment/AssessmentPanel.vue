@@ -205,7 +205,7 @@ const isDirty = ref(false)
 const canPrint = computed(() => Boolean(props.encounter) && props.isFilled)
 
 function printNote() {
-  const url = `/printview?doctype=Patient%20Encounter&name=${encodeURIComponent(props.encounter)}&format=${encodeURIComponent(PRINT_FORMATS[props.mode] || "Derma Assessment Note")}&no_letterhead=0&_lang=${window.frappe?.boot?.lang || "en"}`
+  const url = `/printview?doctype=Patient%20Encounter&name=${encodeURIComponent(props.encounter)}&format=${encodeURIComponent(PRINT_FORMATS[props.mode] || "Derma Assessment Note")}&no_letterhead=1&_lang=${window.frappe?.boot?.lang || "en"}`
   window.open(url, "_blank", "noopener")
 }
 

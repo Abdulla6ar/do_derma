@@ -18,6 +18,7 @@ from frappe.utils import cstr, getdate
 
 from do_derma import assessment, voice
 from do_derma.assessment import HP, SOAP
+from do_derma.printing import letterhead
 from do_derma.schema import DERMA_MODULE, VOICE_TRANSCRIPT_FIELD
 
 TEMPLATE_PREFIX = "Derma AI "
@@ -103,17 +104,11 @@ Warm regards,
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
 # become headings and "- " lines become bullets, everything else a paragraph.
-TEMPLATE_VERSION = 5
+TEMPLATE_VERSION = 6
 TEMPLATE_MARKER = "<!-- derma-ai-letter v"
 LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
-""" + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
-  <table style="width:100%;border-bottom:2px solid #1a3a5c;padding-bottom:10px;margin-bottom:22px;"><tr>
-    <td style="vertical-align:bottom;">
-      <div style="font-size:18px;font-weight:700;color:#1a3a5c;">{{ (company and company.company_name) or (clinic and clinic.custom_clinic_name_en) or '' }}</div>
-      <div style="font-size:11px;color:#666;">{{ (clinic and clinic.custom_clinic_address) or '' }}</div>
-    </td>
-    <td style="vertical-align:bottom;text-align:right;font-size:12px;color:#666;">{{ today }}</td>
-  </tr></table>
+""" + letterhead.OPEN + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:0 24px;">
+  <div style="text-align:right;font-size:12px;color:#666;margin-bottom:10px;">{{ today }}</div>
   {% set language = values.language or 'English' %}
   {% set show_en = language != 'Arabic' or not values.body_ar %}
   {% set show_ar = language in ('Arabic', 'Both') and values.body_ar %}
@@ -122,8 +117,8 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
     <td style="padding:6px 10px;"><b>Patient:</b> {{ patient.patient_name if patient else '' }}</td>
     <td style="padding:6px 10px;"><b>MRN:</b> {{ patient.name if patient else '' }}</td>
-    <td style="padding:6px 10px;"><b>Visit:</b> {{ encounter.encounter_date if encounter else today }}</td>
-    <td style="padding:6px 10px;"><b>Clinician:</b> {{ practitioner.practitioner_name if practitioner else '' }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Visit:</b> {{ encounter.encounter_date if encounter else today }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Clinician:</b> {{ practitioner.practitioner_name if practitioner else '' }}</td>
   </tr></table>
   <div style="font-size:13px;">
   {% for line in (values.body or '').split('\\n') %}
@@ -149,7 +144,7 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     {% endfor %}
   </div>
   {% endif %}
-</div>"""
+</div>""" + letterhead.CLOSE
 
 
 @frappe.whitelist()

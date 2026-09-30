@@ -5,7 +5,7 @@ from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
 from do_derma import assessment
-from do_derma.printing import inject, note, render
+from do_derma.printing import inject, letterhead, note, render
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
 from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
@@ -520,6 +520,15 @@ class TestPrintedEncounter(PrintingTestBase):
 		self.assertIn("Irritant contact dermatitis", printed)
 		self.assertIn("L24.0", printed)
 		self.assertLess(printed.index("L24.0"), printed.index("Topical steroid twice daily"))
+
+	def test_note_prints_on_the_clinic_letterhead(self):
+		note.ensure_assessment_print_format()
+		encounter = self._soap_encounter(custom_derma_soap_plan="Topical steroid twice daily")
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=note.PRINT_FORMATS[assessment.SOAP])
+		self.assertIn(letterhead.LOGO_URL, printed)
+		self.assertIn('id="footer-html"', printed)
+		self.assertIn("CR No. 100506-1", printed)
+		self.assertLess(printed.index(letterhead.LOGO_URL), printed.index("Topical steroid twice daily"))
 
 	def test_advice_language_follows_the_report_or_the_doctor(self):
 		encounter = self._soap_encounter(
